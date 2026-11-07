@@ -67,7 +67,7 @@
       for (const { c, r } of results) {
         let items = r.data.category_round.ranking_items; if (typeof items === 'string') items = JSON.parse(items);
         for (const p of items || []) for (const a of p.ascents || []) {
-          asc.push({ id: a.id, rid: String(a.route_id), pid: a.participant_id, bib: p.bib_number, name: p.name, cat: c.cat, boulder: c.routes[String(a.route_id)] || '?',
+          asc.push({ id: a.id, crId: c.id, rid: String(a.route_id), pid: a.participant_id, bib: p.bib_number, name: p.name, cat: c.cat, boulder: c.routes[String(a.route_id)] || '?',
             jp: routeToJP[String(a.route_id)] || '?', s: a.aasm_state, u: new Date(a.updated_at).getTime(), top: a.top, zone: a.zone, low: a.low_zone, tt: a.top_tries, zt: a.zone_tries, lt: a.low_zone_tries });
         }
       }
@@ -91,6 +91,7 @@
     } catch (e) { lastErr = e.message || String(e); render(null, Date.now()); }
   }
 
+  const L = (id, text) => `\u0001${id}\u0002${text}\u0003`;
   function fmtAgo(ms) { const m = Math.floor(ms / 60e3); return m < 1 ? '<1 min' : m + ' min'; }
   function score(a) { return [a.top ? 'T' + a.tt : null, a.zone ? 'Z' + a.zt : null, a.low ? 'LZ' + a.lt : null].filter(Boolean).join(' ') || 'no zone yet'; }
 
@@ -104,7 +105,7 @@
       const movedOn = (byPid[a.pid] || []).some(o => o.id !== a.id && o.s !== 'pending' && o.u > a.u + 30e3);
       if (movedOn || age > CFG.staleMin * 60e3) {
         alerts.push({ key: 'unc-' + a.id + '-' + a.u, sev: movedOn ? 'high' : 'med', jp: a.jp,
-          title: `Not confirmed: ${a.jp}, bib ${a.bib} (${a.cat})`,
+          title: `Not confirmed: ${a.jp}, bib ${a.bib} (${L(a.crId, a.cat)})`,
           detail: `${a.name}, boulder ${a.boulder}: ${score(a)}. Last change ${fmtAgo(age)} ago` + (movedOn ? '. Athlete has since been scored on another boulder.' : '.') });
       }
     }
@@ -145,6 +146,7 @@
   #usac-mon .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:#3bb36b} #usac-mon .dot.high{background:#d62d2d} #usac-mon .dot.med{background:#e8a10c} #usac-mon .dot.low{background:#8a94a6}
   #usac-mon tr.jp td{font-weight:600;background:#fafbfc;border-top:2px solid #e3e6eb} #usac-mon tr.sub td{font-size:13px;color:#4a5263} #usac-mon tr.sub td:first-child{padding-left:28px}
   #usac-mon tr td.idle{background:#fff1d6;color:#8a5300;font-weight:700;box-shadow:inset 3px 0 0 #e8a10c}
+  #usac-mon a.cat{color:inherit;text-decoration:none;cursor:pointer} #usac-mon a.cat:hover{color:#2f6fde}
   #usac-mon .err{background:#fde8e8;color:#8a1c1c;padding:8px 12px;border-radius:6px;margin-bottom:8px}
   </style>
   <header><b>Judge Monitor</b><span id="um-round"></span><span class="sp"></span>
@@ -166,17 +168,21 @@
     try { const ac = new (window.AudioContext || window.webkitAudioContext)(); [0, 0.25].forEach(d => { const o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = 880; o.connect(g); g.connect(ac.destination); g.gain.value = 0.15; o.start(ac.currentTime + d); o.stop(ac.currentTime + d + 0.15); }); } catch (e) {}
   }
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // Category links: open that category's scoring page in a new tab.
+  const catUrl = id => `/admin/category_rounds/${id}/results`;
+  const catA = (id, text) => `<a class="cat" href="${catUrl(id)}" target="_blank" rel="noopener">${esc(text)}</a>`;
+  const linkify = s => esc(s).replace(/\u0001(\d+)\u0002([^\u0003]*)\u0003/g, (m, id, t) => `<a class="cat" href="${catUrl(id)}" target="_blank" rel="noopener">${t}</a>`);
 
   let lastAsc = null;
   function render(asc, now) {
     if (asc) lastAsc = asc; asc = lastAsc || [];
-    const liveCats = crs.filter(c => !isFinal(c.state)).map(c => c.cat), doneCats = crs.filter(c => isFinal(c.state)).map(c => c.cat);
-    $('#um-round').textContent = round ? `${round.name} · watching ${liveCats.length ? liveCats.join(', ') : 'no categories'}` + (doneCats.length ? ` · finalized, not watched: ${doneCats.join(', ')}` : '') : '';
+    const liveCats = crs.filter(c => !isFinal(c.state)).map(c => catA(c.id, c.cat)), doneCats = crs.filter(c => isFinal(c.state)).map(c => catA(c.id, c.cat));
+    $('#um-round').innerHTML = round ? `${esc(round.name)} · watching ${liveCats.length ? liveCats.join(', ') : 'no categories'}` + (doneCats.length ? ` · finalized, not watched: ${doneCats.join(', ')}` : '') : '';
     $('#um-status').textContent = lastPoll ? `Updated ${new Date(lastPoll).toLocaleTimeString()}` : 'Loading…';
     const alerts = computeAlerts(asc, now).filter(a => !acked[a.key]);
     let html = (now - slowSince < 5 * 60e3) ? '<div class="err">Refreshes were delayed. Chrome slows down tabs that are not in front: keep this tab visible (its own window works well).</div>' : '';
     html += lastErr ? `<div class="err">Last refresh failed: ${esc(lastErr)}. Still retrying. If this persists, reload the page (you may have been logged out).</div>` : '';
-    html += alerts.length ? alerts.map(a => `<div class="al ${a.sev}"><div><div class="t">${esc(a.title)}</div><div class="d">${esc(a.detail)}</div></div><button data-k="${esc(a.key)}">Dismiss</button></div>`).join('')
+    html += alerts.length ? alerts.map(a => `<div class="al ${a.sev}"><div><div class="t">${linkify(a.title)}</div><div class="d">${linkify(a.detail)}</div></div><button data-k="${esc(a.key)}">Dismiss</button></div>`).join('')
       : '<div class="ok">All clear. No unconfirmed scores or inactive positions.</div>';
     $('#um-alerts').innerHTML = html;
     host.querySelectorAll('#um-alerts button[data-k]').forEach(b => b.onclick = () => { acked[b.dataset.k] = true; render(null, Date.now()); });
@@ -197,7 +203,7 @@
       let html = `<tr class="jp"><td><span class="dot ${worst || ''}"></span>${esc(jp)}</td>${stats(mine)}</tr>`;
       for (const c of liveCrs) for (const rid in c.routes) {
         if (routeToJP[rid] !== jp) continue;
-        html += `<tr class="sub"><td>${esc(shortCat(c.cat) + '-' + c.routes[rid])}</td>${stats(mine.filter(a => a.rid === rid), true)}</tr>`;
+        html += `<tr class="sub"><td>${catA(c.id, shortCat(c.cat) + '-' + c.routes[rid])}</td>${stats(mine.filter(a => a.rid === rid), true)}</tr>`;
       }
       return html;
     }).join('');
