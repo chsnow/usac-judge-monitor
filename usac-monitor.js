@@ -96,6 +96,25 @@
 
   const L = (id, text) => `\u0001${id}\u0002${text}\u0003`;
   const B = (id, bib) => `\u0004${id}\u0005${bib}\u0006`;
+  // A climb is "topped" when every non-DNS climber in that category has topped it.
+  // A JP is "done" when it has at least one active climb, all its active climbs are topped,
+  // and no not-yet-started category has a climb there (finalized categories don't count).
+  function doneState(asc) {
+    const topped = new Set(), jpDone = new Set();
+    for (const c of crs.filter(c => isLive(c.state))) for (const rid in c.routes) {
+      const cl = asc.filter(a => a.crId === c.id && a.rid === rid && !a.dns);
+      if (cl.length && cl.every(a => a.top)) topped.add(c.id + ':' + rid);
+    }
+    for (const jp of jpNames) {
+      let live = 0, ok = true;
+      for (const c of crs) for (const rid in c.routes) {
+        if (routeToJP[rid] !== jp || isFinal(c.state)) continue;
+        if (!isLive(c.state) || !topped.has(c.id + ':' + rid)) ok = false; else live++;
+      }
+      if (ok && live) jpDone.add(jp);
+    }
+    return { topped, jpDone };
+  }
   function fmtAgo(ms) { const m = Math.floor(ms / 60e3); return m < 1 ? '<1 min' : m + ' min'; }
   function score(a) { return [a.top ? 'T' + a.tt : null, a.zone ? 'Z' + a.zt : null, a.low ? 'LZ' + a.lt : null].filter(Boolean).join(' ') || 'no zone yet'; }
 
@@ -128,14 +147,20 @@
         detail: last ? `No scores entered for ${fmtAgo(now - last)}, but climbers are still waiting to be judged here. Check the judge is on the right position.`
                      : `No scores entered yet this session, while other positions are active. Check that someone is judging ${jp}.` });
     }
-    // Everyone topped: every climber (DNS excluded) on a live category + boulder has a top.
+    // Everyone topped (per climb) and JP finished (every climb at the position is done).
+    const { topped, jpDone } = doneState(asc);
+    for (const jp of jpNames) if (jpDone.has(jp)) alerts.push({ key: 'jpdone-' + jp, sev: 'done', jp,
+      title: `JP finished: ${jp}`,
+      detail: `Every climber has topped every boulder judged here (DNS excluded), and no unstarted category uses this position. The ${jp} volunteers can be released.` });
     for (const c of crs.filter(c => isLive(c.state))) for (const rid in c.routes) {
-      const climbers = asc.filter(a => a.crId === c.id && a.rid === rid && !a.dns);
-      if (climbers.length && climbers.every(a => a.top)) alerts.push({ key: 'topped-' + c.id + '-' + rid, sev: 'info', jp: routeToJP[rid] || '?',
-        title: `Everyone topped: ${routeToJP[rid] || '?'}, ${L(c.id, shortCat(c.cat) + '-' + c.routes[rid])}`,
-        detail: `All ${climbers.length} ${c.cat} climbers have topped boulder ${c.routes[rid]} (DNS excluded).` });
+      const jp = routeToJP[rid] || '?';
+      if (!topped.has(c.id + ':' + rid) || jpDone.has(jp)) continue;   // JP-finished alert covers it
+      const n = asc.filter(a => a.crId === c.id && a.rid === rid && !a.dns).length;
+      alerts.push({ key: 'topped-' + c.id + '-' + rid, sev: 'info', jp,
+        title: `Everyone topped: ${jp}, ${L(c.id, shortCat(c.cat) + '-' + c.routes[rid])}`,
+        detail: `All ${n} ${c.cat} climbers have topped boulder ${c.routes[rid]} (DNS excluded).` });
     }
-    const order = { high: 0, med: 1, low: 2, info: 3 };
+    const order = { high: 0, med: 1, low: 2, done: 3, info: 4 };
     return alerts.sort((a, b) => order[a.sev] - order[b.sev]);
   }
 
@@ -149,7 +174,7 @@
   #usac-mon main{padding:8px 12px;display:grid;grid-template-columns:auto minmax(260px,1fr);gap:12px;align-items:start}
   #usac-mon h2{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#5b6475;margin:0 0 4px}
   #usac-mon .al{background:#fff;border-left:5px solid #999;border-radius:5px;padding:6px 10px;margin-bottom:6px;box-shadow:0 1px 2px rgba(0,0,0,.08);display:flex;gap:8px}
-  #usac-mon .al.high{border-color:#d62d2d} #usac-mon .al.med{border-color:#e8a10c} #usac-mon .al.low{border-color:#8a94a6} #usac-mon .al.info{border-color:#2f6fde}
+  #usac-mon .al.high{border-color:#d62d2d} #usac-mon .al.med{border-color:#e8a10c} #usac-mon .al.low{border-color:#8a94a6} #usac-mon .al.info{border-color:#2f6fde} #usac-mon .al.done{border-color:#3bb36b;background:#f1faf4}
   #usac-mon .al .t{font-weight:600} #usac-mon .al .d{color:#4a5263;font-size:12px} #usac-mon .al button{margin-left:auto;align-self:start;border:1px solid #ccd;background:#fff;border-radius:3px;cursor:pointer;font-size:11px}
   #usac-mon .ok{background:#e7f6ec;color:#1e6b38;padding:8px 10px;border-radius:5px}
   #usac-mon table{width:auto;border-collapse:collapse;background:#fff;border-radius:5px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.08)}
@@ -157,6 +182,7 @@
   #usac-mon .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:#3bb36b} #usac-mon .dot.high{background:#d62d2d} #usac-mon .dot.med{background:#e8a10c} #usac-mon .dot.low{background:#8a94a6}
   #usac-mon tr.jp td{font-weight:600;background:#f3f5f8;border-top:1px solid #dfe3e9;padding-top:2px;padding-bottom:2px} #usac-mon tr.sub td{font-size:12px;color:#4a5263} #usac-mon tr.sub td:first-child{padding-left:22px}
   #usac-mon td:nth-child(n+2):nth-child(-n+5),#usac-mon th:nth-child(n+2):nth-child(-n+5){text-align:center}
+  #usac-mon tr.done td{color:#b3b9c4;background:#fafafa} #usac-mon tr.done td.idle{background:#fafafa;color:#b3b9c4;box-shadow:none;font-weight:inherit}
   #usac-mon tr td.idle{background:#fff1d6;color:#8a5300;font-weight:700;box-shadow:inset 3px 0 0 #e8a10c}
   #usac-mon a.cat{color:inherit;text-decoration:none;cursor:pointer} #usac-mon a.cat:hover{color:#2f6fde}
   #usac-mon .err{background:#fde8e8;color:#8a1c1c;padding:6px 10px;border-radius:5px;margin-bottom:6px}
@@ -212,13 +238,14 @@
         `<td${idle ? ' class="idle"' : ''}>${last ? fmtAgo(now - last) : 'n/a'}</td>`;
     };
     const liveCrs = crs.filter(c => isLive(c.state));
+    const { topped, jpDone } = doneState(asc);
     const rows = jpNames.map(jp => {
       const mine = asc.filter(a => a.jp === jp);
-      const worst = alerts.filter(a => a.jp === jp && a.sev !== 'info').map(a => a.sev).sort((x, y) => ({ high: 0, med: 1, low: 2 })[x] - ({ high: 0, med: 1, low: 2 })[y])[0];
-      let html = `<tr class="jp"><td><span class="dot ${worst || ''}"></span>${esc(jp)}</td>${stats(mine)}</tr>`;
+      const worst = alerts.filter(a => a.jp === jp && ['high', 'med', 'low'].includes(a.sev)).map(a => a.sev).sort((x, y) => ({ high: 0, med: 1, low: 2 })[x] - ({ high: 0, med: 1, low: 2 })[y])[0];
+      let html = `<tr class="jp${jpDone.has(jp) ? ' done' : ''}"><td><span class="dot ${worst || ''}"></span>${esc(jp)}</td>${stats(mine)}</tr>`;
       for (const c of liveCrs) for (const rid in c.routes) {
         if (routeToJP[rid] !== jp) continue;
-        html += `<tr class="sub"><td>${catA(c.id, shortCat(c.cat) + '-' + c.routes[rid])}</td>${stats(mine.filter(a => a.rid === rid), true)}</tr>`;
+        html += `<tr class="sub${topped.has(c.id + ':' + rid) ? ' done' : ''}"><td>${catA(c.id, shortCat(c.cat) + '-' + c.routes[rid])}</td>${stats(mine.filter(a => a.rid === rid), true)}</tr>`;
       }
       return html;
     }).join('');
