@@ -183,9 +183,10 @@
     // One row per position, then a sub-row per live category + boulder judged there.
     const stats = (list, flagIdle) => {
       const last = Math.max(0, ...list.filter(a => a.s !== 'pending').map(a => a.u));
+      const pend = list.filter(a => a.s === 'active').length; // highlighted when more than 1
       // Flag a climb that still has climbers to judge but no activity within the inactive limit.
       const idle = flagIdle && list.some(a => a.s === 'pending' || a.s === 'active') && (!last || now - last >= CFG.inactiveMin * 60e3);
-      return `<td>${list.filter(a => a.s === 'pending').length}</td><td>${list.filter(a => a.s === 'active').length}</td>` +
+      return `<td>${list.filter(a => a.s === 'pending').length}</td><td${pend > 1 ? ' class="idle"' : ''}>${pend}</td>` +
         `<td>${list.filter(a => a.s === 'confirmed').length}</td><td>${list.filter(a => a.s === 'locked').length}</td>` +
         `<td${idle ? ' class="idle"' : ''}>${last ? fmtAgo(now - last) : 'n/a'}</td>`;
     };
