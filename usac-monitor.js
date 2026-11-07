@@ -45,17 +45,21 @@
   const acked = {};         // alertKey -> true
   let lastPoll = null, lastErr = null, firstPoll = true, timer = null;
 
+  // Categories whose results are finalized drop out of monitoring.
+  const isFinal = st => /finish|official|final|closed|archiv/i.test(String(st || ''));
+
   async function loadRound() {
     const r = await client.query({ query: roundDoc, variables: { id: Number(roundId) }, fetchPolicy: 'network-only' });
     round = Object.assign({}, r.data.round); routeToJP = {}; jpNames = [];
     round.judge_positions.forEach(j => { jpNames.push(j.name); j.judge_position_routes.forEach(x => { routeToJP[String(x.route ? x.route.id : x.route_id)] = j.name; }); });
-    crs = round.category_rounds.map(c => ({ id: c.id, cat: c.category ? c.category.name : c.name, routes: Object.fromEntries((c.routes || []).map(rt => [String(rt.id), rt.name])) }));
+    crs = round.category_rounds.map(c => ({ id: c.id, cat: c.category ? c.category.name : c.name, state: c.aasm_state, routes: Object.fromEntries((c.routes || []).map(rt => [String(rt.id), rt.name])) }));
   }
 
   async function poll() {
     try {
-      if (!round || Date.now() - round.__t > 5 * 60e3) { await loadRound(); round.__t = Date.now(); }
-      const results = await Promise.all(crs.map(c => client.query({ query: rankDoc, variables: { id: c.id }, fetchPolicy: 'network-only' }).then(r => ({ c, r }))));
+      await loadRound();
+      const live = crs.filter(c => !isFinal(c.state));
+      const results = await Promise.all(live.map(c => client.query({ query: rankDoc, variables: { id: c.id }, fetchPolicy: 'network-only' }).then(r => ({ c, r }))));
       const asc = [];
       for (const { c, r } of results) {
         let items = r.data.category_round.ranking_items; if (typeof items === 'string') items = JSON.parse(items);
@@ -166,7 +170,8 @@
   let lastAsc = null;
   function render(asc, now) {
     if (asc) lastAsc = asc; asc = lastAsc || [];
-    $('#um-round').textContent = round ? `${round.name} · ${crs.length} categories · ${jpNames.length} positions` : '';
+    const liveCats = crs.filter(c => !isFinal(c.state)).map(c => c.cat), doneCats = crs.filter(c => isFinal(c.state)).map(c => c.cat);
+    $('#um-round').textContent = round ? `${round.name} · watching ${liveCats.length ? liveCats.join(', ') : 'no categories'}` + (doneCats.length ? ` · finalized, not watched: ${doneCats.join(', ')}` : '') : '';
     $('#um-status').textContent = lastPoll ? `Updated ${new Date(lastPoll).toLocaleTimeString()}` : 'Loading…';
     const alerts = computeAlerts(asc, now).filter(a => !acked[a.key]);
     let html = lastErr ? `<div class="err">Last refresh failed: ${esc(lastErr)}. Still retrying. If this persists, reload the page (you may have been logged out).</div>` : '';
