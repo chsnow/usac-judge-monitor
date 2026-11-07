@@ -58,7 +58,7 @@
     const r = await client.query({ query: roundDoc, variables: { id: Number(roundId) }, fetchPolicy: 'network-only' });
     round = Object.assign({}, r.data.round); routeToJP = {}; jpNames = [];
     round.judge_positions.forEach(j => { jpNames.push(j.name); j.judge_position_routes.forEach(x => { routeToJP[String(x.route ? x.route.id : x.route_id)] = j.name; }); });
-    crs = round.category_rounds.map(c => ({ id: c.id, cat: c.category ? c.category.name : c.name, state: c.aasm_state, routes: Object.fromEntries((c.routes || []).map(rt => [String(rt.id), rt.name])) }));
+    crs = round.category_rounds.map(c => ({ id: c.id, cat: c.category ? c.category.name : c.name, state: c.aasm_state, maxTries: c.max_tries || round.max_tries || null, routes: Object.fromEntries((c.routes || []).map(rt => [String(rt.id), rt.name])) }));
   }
 
   async function poll() {
@@ -70,7 +70,7 @@
       for (const { c, r } of results) {
         let items = r.data.category_round.ranking_items; if (typeof items === 'string') items = JSON.parse(items);
         for (const p of items || []) for (const a of p.ascents || []) {
-          asc.push({ id: a.id, dns: /\bDNS\b/.test(String(p.score || '')), crId: c.id, rid: String(a.route_id), pid: a.participant_id, bib: p.bib_number, name: p.name, cat: c.cat, boulder: c.routes[String(a.route_id)] || '?',
+          asc.push({ id: a.id, dns: /\bDNS\b/.test(String(p.score || '')), out: /\b(DNS|DSQ)\b/.test(String(p.score || '')), maxTries: c.maxTries, crId: c.id, rid: String(a.route_id), pid: a.participant_id, bib: p.bib_number, name: p.name, cat: c.cat, boulder: c.routes[String(a.route_id)] || '?',
             jp: routeToJP[String(a.route_id)] || '?', s: a.aasm_state, u: new Date(a.updated_at).getTime(), top: a.top, zone: a.zone, low: a.low_zone, tt: a.top_tries, zt: a.zone_tries, lt: a.low_zone_tries });
         }
       }
@@ -185,8 +185,11 @@
   #usac-mon td,#usac-mon th{padding:1px 8px;border-bottom:1px solid #f0f2f5;text-align:left;white-space:nowrap} #usac-mon th{background:#fafbfc;font-size:11px;color:#5b6475;padding:3px 8px}
   #usac-mon .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:#3bb36b} #usac-mon .dot.high{background:#d62d2d} #usac-mon .dot.med{background:#e8a10c} #usac-mon .dot.low{background:#8a94a6}
   #usac-mon tr.jp td{font-weight:600;background:#f3f5f8;border-top:1px solid #dfe3e9;padding-top:2px;padding-bottom:2px} #usac-mon tr.sub td{font-size:12px;color:#4a5263} #usac-mon tr.sub td:first-child{padding-left:22px}
-  #usac-mon td:nth-child(n+2):nth-child(-n+5),#usac-mon th:nth-child(n+2):nth-child(-n+5){text-align:center}
+  #usac-mon td:nth-child(n+2):nth-child(-n+6),#usac-mon th:nth-child(n+2):nth-child(-n+6){text-align:center}
+  #usac-mon td.split,#usac-mon th.split{border-left:2px solid #c9ced6}
   #usac-mon tr.done td{color:#b3b9c4;background:#fafafa} #usac-mon tr.done td.idle{background:#fafafa;color:#b3b9c4;box-shadow:none;font-weight:inherit}
+  #usac-mon tr td[data-hl]{background:#fff1d6;color:#8a5300;font-weight:700}
+  #usac-mon tr.done td[data-hl]{background:#fafafa;color:#b3b9c4;font-weight:inherit}
   #usac-mon tr td.idle{background:#fff1d6;color:#8a5300;font-weight:700;box-shadow:inset 3px 0 0 #e8a10c}
   #usac-mon a.cat{color:inherit;text-decoration:none;cursor:pointer} #usac-mon a.cat:hover{color:#2f6fde}
   #usac-mon .err{background:#fde8e8;color:#8a1c1c;padding:6px 10px;border-radius:5px;margin-bottom:6px}
@@ -237,8 +240,11 @@
       const pend = list.filter(a => a.s === 'active').length; // highlighted when more than 1
       // Flag a climb that still has climbers to judge but no activity within the inactive limit.
       const idle = flagIdle && list.some(a => a.s === 'pending' || a.s === 'active') && (!last || now - last >= CFG.inactiveMin * 60e3);
-      return `<td>${list.filter(a => a.s === 'pending').length}</td><td${pend > 1 ? ' class="idle"' : ''}>${pend}</td>` +
-        `<td>${list.filter(a => a.s === 'confirmed').length}</td><td>${list.filter(a => a.s === 'locked').length}</td>` +
+      // Remaining: climbers who might still make attempts here: not scratched (DNS/DSQ),
+      // not topped, and attempts used (top_tries) below the max attempts.
+      const remaining = list.filter(a => !a.out && !a.top && (!a.maxTries || (a.tt || 0) < a.maxTries)).length;
+      return `<td>${list.filter(a => a.s === 'pending').length}</td><td>${remaining}</td><td>${list.filter(a => a.s === 'locked').length}</td>` +
+        `<td class="split"${pend > 1 ? ' data-hl' : ''}>${pend}</td><td>${list.filter(a => a.s === 'confirmed').length}</td>` +
         `<td${idle ? ' class="idle"' : ''}>${last ? fmtAgo(now - last) : 'n/a'}</td>`;
     };
     const liveCrs = crs.filter(c => isLive(c.state));
@@ -253,7 +259,7 @@
       }
       return html;
     }).join('');
-    $('#um-jps').innerHTML = `<table><tr><th>Position / climb</th><th>Not started</th><th>Pending</th><th>Confirmed</th><th>Locked</th><th>Last activity</th></tr>${rows}</table>`;
+    $('#um-jps').innerHTML = `<table><tr><th>Position / climb</th><th>Not started</th><th>Remaining</th><th>Locked</th><th class="split">Pending</th><th>Confirmed</th><th>Last activity</th></tr>${rows}</table>`;
     const hi = alerts.filter(a => a.sev === 'high' || a.sev === 'med');
     document.title = hi.length ? `(${hi.length}) ⚠ Judge Monitor` : baseTitle;
     const fresh = hi.filter(a => !beeped[a.key]); if (fresh.length) { beep(); fresh.forEach(a => beeped[a.key] = true); }
