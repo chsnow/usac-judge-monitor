@@ -135,23 +135,23 @@
   // ---------- UI ----------
   const host = document.createElement('div'); host.id = 'usac-mon';
   host.innerHTML = `<style>
-  #usac-mon{position:fixed;inset:0;z-index:2147483646;background:#f5f6f8;font:14px/1.4 -apple-system,system-ui,sans-serif;color:#1d2433;overflow:auto}
-  #usac-mon header{position:sticky;top:0;background:#1d2433;color:#fff;padding:10px 16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
-  #usac-mon header b{font-size:16px} #usac-mon header .sp{flex:1}
-  #usac-mon header input{width:44px;padding:2px 4px} #usac-mon header button{background:#fff;border:0;border-radius:4px;padding:4px 10px;cursor:pointer}
-  #usac-mon main{padding:16px;display:grid;grid-template-columns:minmax(280px,2fr) minmax(380px,3fr);gap:16px}
-  #usac-mon h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#5b6475;margin:0 0 8px}
-  #usac-mon .al{background:#fff;border-left:6px solid #999;border-radius:6px;padding:10px 12px;margin-bottom:8px;box-shadow:0 1px 2px rgba(0,0,0,.08);display:flex;gap:10px}
+  #usac-mon{position:fixed;inset:0;z-index:2147483646;background:#f5f6f8;font:13px/1.25 -apple-system,system-ui,sans-serif;color:#1d2433;overflow:auto}
+  #usac-mon header{position:sticky;top:0;z-index:1;background:#1d2433;color:#fff;padding:5px 12px;display:flex;gap:4px 14px;align-items:center;flex-wrap:wrap;font-size:12px}
+  #usac-mon header b{font-size:14px} #usac-mon header .sp{flex:1}
+  #usac-mon header input{width:38px;padding:0 3px;font-size:12px} #usac-mon header button{background:#fff;border:0;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:12px}
+  #usac-mon main{padding:8px 12px;display:grid;grid-template-columns:minmax(260px,2fr) minmax(380px,3fr);gap:12px;align-items:start}
+  #usac-mon h2{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#5b6475;margin:0 0 4px}
+  #usac-mon .al{background:#fff;border-left:5px solid #999;border-radius:5px;padding:6px 10px;margin-bottom:6px;box-shadow:0 1px 2px rgba(0,0,0,.08);display:flex;gap:8px}
   #usac-mon .al.high{border-color:#d62d2d} #usac-mon .al.med{border-color:#e8a10c} #usac-mon .al.low{border-color:#8a94a6}
-  #usac-mon .al .t{font-weight:600} #usac-mon .al .d{color:#4a5263;font-size:13px} #usac-mon .al button{margin-left:auto;align-self:start;border:1px solid #ccd;background:#fff;border-radius:4px;cursor:pointer}
-  #usac-mon .ok{background:#e7f6ec;color:#1e6b38;padding:12px;border-radius:6px}
-  #usac-mon table{width:100%;border-collapse:collapse;background:#fff;border-radius:6px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.08)}
-  #usac-mon td,#usac-mon th{padding:6px 10px;border-bottom:1px solid #eef0f3;text-align:left} #usac-mon th{background:#fafbfc;font-size:12px;color:#5b6475}
-  #usac-mon .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:#3bb36b} #usac-mon .dot.high{background:#d62d2d} #usac-mon .dot.med{background:#e8a10c} #usac-mon .dot.low{background:#8a94a6}
-  #usac-mon tr.jp td{font-weight:600;background:#fafbfc;border-top:2px solid #e3e6eb} #usac-mon tr.sub td{font-size:13px;color:#4a5263} #usac-mon tr.sub td:first-child{padding-left:28px}
+  #usac-mon .al .t{font-weight:600} #usac-mon .al .d{color:#4a5263;font-size:12px} #usac-mon .al button{margin-left:auto;align-self:start;border:1px solid #ccd;background:#fff;border-radius:3px;cursor:pointer;font-size:11px}
+  #usac-mon .ok{background:#e7f6ec;color:#1e6b38;padding:8px 10px;border-radius:5px}
+  #usac-mon table{width:100%;border-collapse:collapse;background:#fff;border-radius:5px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+  #usac-mon td,#usac-mon th{padding:1px 8px;border-bottom:1px solid #f0f2f5;text-align:left;white-space:nowrap} #usac-mon th{background:#fafbfc;font-size:11px;color:#5b6475;padding:3px 8px}
+  #usac-mon .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:#3bb36b} #usac-mon .dot.high{background:#d62d2d} #usac-mon .dot.med{background:#e8a10c} #usac-mon .dot.low{background:#8a94a6}
+  #usac-mon tr.jp td{font-weight:600;background:#f3f5f8;border-top:1px solid #dfe3e9;padding-top:2px;padding-bottom:2px} #usac-mon tr.sub td{font-size:12px;color:#4a5263} #usac-mon tr.sub td:first-child{padding-left:22px}
   #usac-mon tr td.idle{background:#fff1d6;color:#8a5300;font-weight:700;box-shadow:inset 3px 0 0 #e8a10c}
   #usac-mon a.cat{color:inherit;text-decoration:none;cursor:pointer} #usac-mon a.cat:hover{color:#2f6fde}
-  #usac-mon .err{background:#fde8e8;color:#8a1c1c;padding:8px 12px;border-radius:6px;margin-bottom:8px}
+  #usac-mon .err{background:#fde8e8;color:#8a1c1c;padding:6px 10px;border-radius:5px;margin-bottom:6px}
   </style>
   <header><b>Judge Monitor</b><span id="um-round"></span><span class="sp"></span>
    <label>Unconfirmed after <input id="um-stale" type="number" min="1"> min</label>
