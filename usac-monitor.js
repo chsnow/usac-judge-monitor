@@ -49,7 +49,10 @@
   const shortCat = cat => String(cat).replace(/^([A-Za-z])[^-]*-/, '$1').replace(/\+$/, '');
 
   // Categories whose results are finalized drop out of monitoring.
+  // Only categories that are climbing right now are watched. Category states on the site:
+  // pending (not started yet) -> active (climbing) -> finished (finalized).
   const isFinal = st => /finish|official|final|closed|archiv/i.test(String(st || ''));
+  const isLive = st => st === 'active';
 
   async function loadRound() {
     const r = await client.query({ query: roundDoc, variables: { id: Number(roundId) }, fetchPolicy: 'network-only' });
@@ -61,7 +64,7 @@
   async function poll() {
     try {
       await loadRound();
-      const live = crs.filter(c => !isFinal(c.state));
+      const live = crs.filter(c => isLive(c.state));
       const results = await Promise.all(live.map(c => client.query({ query: rankDoc, variables: { id: c.id }, fetchPolicy: 'network-only' }).then(r => ({ c, r }))));
       const asc = [];
       for (const { c, r } of results) {
@@ -178,8 +181,10 @@
   let lastAsc = null;
   function render(asc, now) {
     if (asc) lastAsc = asc; asc = lastAsc || [];
-    const liveCats = crs.filter(c => !isFinal(c.state)).map(c => catA(c.id, c.cat)), doneCats = crs.filter(c => isFinal(c.state)).map(c => catA(c.id, c.cat));
-    $('#um-round').innerHTML = round ? `${esc(round.name)} · watching ${liveCats.length ? liveCats.join(', ') : 'no categories'}` + (doneCats.length ? ` · finalized, not watched: ${doneCats.join(', ')}` : '') : '';
+    const pick = f => crs.filter(c => f(c.state)).map(c => catA(c.id, c.cat));
+    const liveCats = pick(isLive), doneCats = pick(isFinal), waitCats = pick(st => !isLive(st) && !isFinal(st));
+    $('#um-round').innerHTML = round ? `${esc(round.name)} · watching ${liveCats.length ? liveCats.join(', ') : 'no categories (none are active yet)'}` +
+      (waitCats.length ? ` · not started: ${waitCats.join(', ')}` : '') + (doneCats.length ? ` · finalized: ${doneCats.join(', ')}` : '') : '';
     $('#um-status').textContent = lastPoll ? `Updated ${new Date(lastPoll).toLocaleTimeString()}` : 'Loading…';
     const alerts = computeAlerts(asc, now).filter(a => !acked[a.key]);
     let html = (now - slowSince < 5 * 60e3) ? '<div class="err">Refreshes were delayed. Chrome slows down tabs that are not in front: keep this tab visible (its own window works well).</div>' : '';
@@ -198,7 +203,7 @@
         `<td>${list.filter(a => a.s === 'confirmed').length}</td><td>${list.filter(a => a.s === 'locked').length}</td>` +
         `<td${idle ? ' class="idle"' : ''}>${last ? fmtAgo(now - last) : 'n/a'}</td>`;
     };
-    const liveCrs = crs.filter(c => !isFinal(c.state));
+    const liveCrs = crs.filter(c => isLive(c.state));
     const rows = jpNames.map(jp => {
       const mine = asc.filter(a => a.jp === jp);
       const worst = alerts.filter(a => a.jp === jp).map(a => a.sev).sort()[0];
