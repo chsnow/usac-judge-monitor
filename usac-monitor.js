@@ -92,6 +92,7 @@
   }
 
   const L = (id, text) => `\u0001${id}\u0002${text}\u0003`;
+  const B = (id, bib) => `\u0004${id}\u0005${bib}\u0006`;
   function fmtAgo(ms) { const m = Math.floor(ms / 60e3); return m < 1 ? '<1 min' : m + ' min'; }
   function score(a) { return [a.top ? 'T' + a.tt : null, a.zone ? 'Z' + a.zt : null, a.low ? 'LZ' + a.lt : null].filter(Boolean).join(' ') || 'no zone yet'; }
 
@@ -105,7 +106,7 @@
       const movedOn = (byPid[a.pid] || []).some(o => o.id !== a.id && o.s !== 'pending' && o.u > a.u + 30e3);
       if (movedOn || age > CFG.staleMin * 60e3) {
         alerts.push({ key: 'unc-' + a.id + '-' + a.u, sev: movedOn ? 'high' : 'med', jp: a.jp,
-          title: `Not confirmed: ${a.jp}, bib ${a.bib} (${L(a.crId, a.cat)})`,
+          title: `Not confirmed: ${a.jp}, ${B(a.crId, a.bib)} (${L(a.crId, a.cat)})`,
           detail: `${a.name}, boulder ${a.boulder}: ${score(a)}. Last change ${fmtAgo(age)} ago` + (movedOn ? '. Athlete has since been scored on another boulder.' : '.') });
       }
     }
@@ -171,7 +172,8 @@
   // Category links: open that category's scoring page in a new tab.
   const catUrl = id => `/admin/category_rounds/${id}/results`;
   const catA = (id, text) => `<a class="cat" href="${catUrl(id)}" target="_blank" rel="noopener">${esc(text)}</a>`;
-  const linkify = s => esc(s).replace(/\u0001(\d+)\u0002([^\u0003]*)\u0003/g, (m, id, t) => `<a class="cat" href="${catUrl(id)}" target="_blank" rel="noopener">${t}</a>`);
+  const linkify = s => esc(s).replace(/\u0001(\d+)\u0002([^\u0003]*)\u0003/g, (m, id, t) => `<a class="cat" href="${catUrl(id)}" target="_blank" rel="noopener">${t}</a>`)
+    .replace(/\u0004(\d+)\u0005([^\u0006]*)\u0006/g, (m, id, b) => `<a class="cat bib" href="${catUrl(id)}" target="_blank" data-bib="${b}">bib ${b}</a>`);
 
   let lastAsc = null;
   function render(asc, now) {
@@ -212,6 +214,27 @@
     document.title = hi.length ? `(${hi.length}) ⚠ Judge Monitor` : baseTitle;
     const fresh = hi.filter(a => !beeped[a.key]); if (fresh.length) { beep(); fresh.forEach(a => beeped[a.key] = true); }
   }
+
+  // Bib links: open the category's results page in a new tab and search for that bib.
+  // Same site, so we can fill the page's own "Search by bib number or name" box.
+  host.addEventListener('click', e => {
+    const a = e.target.closest('a.bib'); if (!a) return;
+    e.preventDefault();
+    const w = window.open(a.href, '_blank'); if (!w) { location.href = a.href; return; }
+    const bib = a.dataset.bib, t0 = Date.now();
+    const tick = setInterval(() => {
+      try {
+        const inp = [...w.document.querySelectorAll('input')].find(i => /bib/i.test(i.placeholder || ''));
+        const ready = inp && w.document.querySelectorAll('table tbody tr').length > 0;
+        if (ready) {
+          Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, 'value').set.call(inp, bib);
+          inp.dispatchEvent(new w.Event('input', { bubbles: true }));
+          clearInterval(tick);
+        }
+      } catch (err) {}
+      if (Date.now() - t0 > 20000) clearInterval(tick);
+    }, 300);
+  });
 
   window.__usacMon = { show: () => { host.style.display = ''; } };
   await poll();
