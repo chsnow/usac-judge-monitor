@@ -45,6 +45,9 @@
   const acked = {};         // alertKey -> true
   let lastPoll = null, lastErr = null, firstPoll = true, timer = null, slowSince = 0;
 
+  // Compact climb label: "M/O-15" + boulder 1 -> "M15-1", "F-19+" -> "F19+".
+  const shortCat = cat => String(cat).replace(/^([A-Za-z])[^-]*-/, '$1');
+
   // Categories whose results are finalized drop out of monitoring.
   const isFinal = st => /finish|official|final|closed|archiv/i.test(String(st || ''));
 
@@ -196,7 +199,7 @@
       let html = `<tr class="jp"><td><span class="dot ${worst || ''}"></span>${esc(jp)}</td>${stats(mine)}</tr>`;
       for (const c of liveCrs) for (const rid in c.routes) {
         if (routeToJP[rid] !== jp) continue;
-        html += `<tr class="sub"><td>${esc(c.cat)} · boulder ${esc(c.routes[rid])}</td>${stats(mine.filter(a => a.rid === rid))}</tr>`;
+        html += `<tr class="sub"><td>${esc(shortCat(c.cat) + '-' + c.routes[rid])}</td>${stats(mine.filter(a => a.rid === rid))}</tr>`;
       }
       return html;
     }).join('');
