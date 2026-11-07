@@ -40,6 +40,7 @@
 
   // ---------- state ----------
   let round = null, routeToJP = {}, jpNames = [], crs = [];
+  let catInfo = {};   // category-round id -> { total registered, dns }
   const seen = {};          // ascentId -> {u, s}
   const events = [];        // {t, jp, pid, aid}
   const acked = {};         // alertKey -> true
@@ -69,8 +70,9 @@
       const asc = [];
       for (const { c, r } of results) {
         let items = r.data.category_round.ranking_items; if (typeof items === 'string') items = JSON.parse(items);
+        catInfo[c.id] = { total: (items || []).length, dns: (items || []).filter(p => /\bDNS\b/.test(String(p.score || ''))).length };
         for (const p of items || []) for (const a of p.ascents || []) {
-          asc.push({ id: a.id, dns: /\bDNS\b/.test(String(p.score || '')), out: /\b(DNS|DSQ)\b/.test(String(p.score || '')), maxTries: c.maxTries, crId: c.id, rid: String(a.route_id), pid: a.participant_id, bib: p.bib_number, name: p.name, cat: c.cat, boulder: c.routes[String(a.route_id)] || '?',
+          asc.push({ id: a.id, dns: /\bDNS\b/.test(String(p.score || '')), out: /\bDNS\b/.test(String(p.score || '')), dsq: /\bDSQ\b/.test(String(p.score || '')), maxTries: c.maxTries, crId: c.id, rid: String(a.route_id), pid: a.participant_id, bib: p.bib_number, name: p.name, cat: c.cat, boulder: c.routes[String(a.route_id)] || '?',
             jp: routeToJP[String(a.route_id)] || '?', s: a.aasm_state, u: new Date(a.updated_at).getTime(), top: a.top, zone: a.zone, low: a.low_zone, tt: a.top_tries, zt: a.zone_tries, lt: a.low_zone_tries });
         }
       }
@@ -119,6 +121,22 @@
     }
     return { topped, jpDone };
   }
+  // Per-climb people counts. Total and DNS come from the category's registration list;
+  // Not started / Remaining / Done come from each non-DNS climber's record on this climb.
+  // Total should equal Not started + Remaining + Done + DNS; if not, something is off.
+  //   Done:        topped, locked, DSQ, or out of attempts (top_tries = attempts used)
+  //   Not started: not done and never opened on this climb
+  //   Remaining:   not done, already started, can still make attempts
+  const isDone = a => a.top || a.s === 'locked' || a.dsq || (a.maxTries && (a.tt || 0) >= a.maxTries);
+  function climbCounts(asc, crId, rid) {
+    const ppl = asc.filter(a => a.crId === crId && a.rid === rid && !a.out);
+    const k = { total: (catInfo[crId] || {}).total || 0, dns: (catInfo[crId] || {}).dns || 0,
+      done: ppl.filter(isDone).length,
+      notStarted: ppl.filter(a => !isDone(a) && a.s === 'pending').length,
+      remaining: ppl.filter(a => !isDone(a) && a.s !== 'pending').length };
+    k.ok = k.total === k.notStarted + k.remaining + k.done + k.dns;
+    return k;
+  }
   function fmtAgo(ms) { const m = Math.floor(ms / 60e3); return m < 1 ? '<1 min' : m + ' min'; }
   function score(a) { return [a.top ? 'T' + a.tt : null, a.zone ? 'Z' + a.zt : null, a.low ? 'LZ' + a.lt : null].filter(Boolean).join(' ') || 'no zone yet'; }
 
@@ -164,6 +182,13 @@
         title: `Everyone topped: ${jp}, ${L(c.id, shortCat(c.cat) + '-' + c.routes[rid])}`,
         detail: `All ${n} ${c.cat} climbers have topped boulder ${c.routes[rid]} (DNS excluded).` });
     }
+    // Counts don't add up for a climb: Total != Not started + Remaining + Done + DNS.
+    for (const c of crs.filter(c => isLive(c.state))) for (const rid in c.routes) {
+      const k = climbCounts(asc, c.id, rid), jp = routeToJP[rid] || '?';
+      if (!k.ok) alerts.push({ key: 'math-' + c.id + '-' + rid + '-' + [k.total, k.notStarted, k.remaining, k.done, k.dns].join('.'), sev: 'med', jp,
+        title: `Counts don't add up: ${jp}, ${L(c.id, shortCat(c.cat) + '-' + c.routes[rid])}`,
+        detail: `${c.cat} has ${k.total} registered, but this climb shows ${k.notStarted} not started + ${k.remaining} remaining + ${k.done} done + ${k.dns} DNS = ${k.notStarted + k.remaining + k.done + k.dns}. A climber may be missing from (or duplicated on) this boulder.` });
+    }
     const order = { high: 0, med: 1, low: 2, done: 3, info: 4 };
     return alerts.sort((a, b) => order[a.sev] - order[b.sev]);
   }
@@ -185,7 +210,7 @@
   #usac-mon td,#usac-mon th{padding:1px 8px;border-bottom:1px solid #f0f2f5;text-align:left;white-space:nowrap} #usac-mon th{background:#fafbfc;font-size:11px;color:#5b6475;padding:3px 8px}
   #usac-mon .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:#3bb36b} #usac-mon .dot.high{background:#d62d2d} #usac-mon .dot.med{background:#e8a10c} #usac-mon .dot.low{background:#8a94a6}
   #usac-mon tr.jp td{font-weight:600;background:#f3f5f8;border-top:1px solid #dfe3e9;padding-top:2px;padding-bottom:2px} #usac-mon tr.sub td{font-size:12px;color:#4a5263} #usac-mon tr.sub td:first-child{padding-left:22px}
-  #usac-mon td:nth-child(n+2):nth-child(-n+6),#usac-mon th:nth-child(n+2):nth-child(-n+6){text-align:center}
+  #usac-mon td:nth-child(n+2):nth-child(-n+8),#usac-mon th:nth-child(n+2):nth-child(-n+8){text-align:center}
   #usac-mon td.split,#usac-mon th.split{border-left:2px solid #c9ced6}
   #usac-mon tr.done td{color:#b3b9c4;background:#fafafa} #usac-mon tr.done td.idle{background:#fafafa;color:#b3b9c4;box-shadow:none;font-weight:inherit}
   #usac-mon tr td[data-hl]{background:#fff1d6;color:#8a5300;font-weight:700}
@@ -235,22 +260,12 @@
     $('#um-alerts').innerHTML = html;
     host.querySelectorAll('#um-alerts button[data-k]').forEach(b => b.onclick = () => { acked[b.dataset.k] = true; render(null, Date.now()); });
     // One row per position, then a sub-row per live category + boulder judged there.
-    const stats = (list, flagIdle) => {
+    const stats = (list, k, flagIdle) => {
       const last = Math.max(0, ...list.filter(a => a.s !== 'pending').map(a => a.u));
       const pend = list.filter(a => a.s === 'active').length; // highlighted when more than 1
       // Flag a climb that still has climbers to judge but no activity within the inactive limit.
       const idle = flagIdle && list.some(a => a.s === 'pending' || a.s === 'active') && (!last || now - last >= CFG.inactiveMin * 60e3);
-      // People columns partition the non-scratched climbers, so on every climb of a category
-      // Not started + Remaining + Done = the same total. Scratched (DNS/DSQ) are left out.
-      //   Done:        topped, locked, or out of attempts (top_tries = attempts used)
-      //   Not started: not done and never opened on this climb
-      //   Remaining:   not done, already started, can still make attempts
-      const isDone = a => a.top || a.s === 'locked' || (a.maxTries && (a.tt || 0) >= a.maxTries);
-      const ppl = list.filter(a => !a.out);
-      const done = ppl.filter(isDone).length;
-      const notStarted = ppl.filter(a => !isDone(a) && a.s === 'pending').length;
-      const remaining = ppl.filter(a => !isDone(a) && a.s !== 'pending').length;
-      return `<td>${notStarted}</td><td>${remaining}</td><td>${done}</td>` +
+      return `<td${k.ok ? '' : ' data-hl'}>${k.total}</td><td>${k.notStarted}</td><td>${k.remaining}</td><td>${k.done}</td><td>${k.dns}</td>` +
         `<td class="split"${pend > 1 ? ' data-hl' : ''}>${pend}</td><td>${list.filter(a => a.s === 'confirmed').length}</td>` +
         `<td${idle ? ' class="idle"' : ''}>${last ? fmtAgo(now - last) : 'n/a'}</td>`;
     };
@@ -259,14 +274,17 @@
     const rows = jpNames.map(jp => {
       const mine = asc.filter(a => a.jp === jp);
       const worst = alerts.filter(a => a.jp === jp && ['high', 'med', 'low'].includes(a.sev)).map(a => a.sev).sort((x, y) => ({ high: 0, med: 1, low: 2 })[x] - ({ high: 0, med: 1, low: 2 })[y])[0];
-      let html = `<tr class="jp${jpDone.has(jp) ? ' done' : ''}"><td><span class="dot ${worst || ''}"></span>${esc(jp)}</td>${stats(mine)}</tr>`;
+      const sum = { total: 0, notStarted: 0, remaining: 0, done: 0, dns: 0, ok: true }; let subs = '';
       for (const c of liveCrs) for (const rid in c.routes) {
         if (routeToJP[rid] !== jp) continue;
-        html += `<tr class="sub${topped.has(c.id + ':' + rid) ? ' done' : ''}"><td>${catA(c.id, shortCat(c.cat) + '-' + c.routes[rid])}</td>${stats(mine.filter(a => a.rid === rid), true)}</tr>`;
+        const k = climbCounts(asc, c.id, rid);
+        for (const f of ['total', 'notStarted', 'remaining', 'done', 'dns']) sum[f] += k[f];
+        sum.ok = sum.ok && k.ok;
+        subs += `<tr class="sub${topped.has(c.id + ':' + rid) ? ' done' : ''}"><td>${catA(c.id, shortCat(c.cat) + '-' + c.routes[rid])}</td>${stats(mine.filter(a => a.rid === rid), k, true)}</tr>`;
       }
-      return html;
+      return `<tr class="jp${jpDone.has(jp) ? ' done' : ''}"><td><span class="dot ${worst || ''}"></span>${esc(jp)}</td>${stats(mine, sum)}</tr>` + subs;
     }).join('');
-    $('#um-jps').innerHTML = `<table><tr><th>Position / climb</th><th>Not started</th><th>Remaining</th><th>Done</th><th class="split">Pending</th><th>Confirmed</th><th>Last activity</th></tr>${rows}</table>`;
+    $('#um-jps').innerHTML = `<table><tr><th>Position / climb</th><th>Total</th><th>Not started</th><th>Remaining</th><th>Done</th><th>DNS</th><th class="split">Pending</th><th>Confirmed</th><th>Last activity</th></tr>${rows}</table>`;
     const hi = alerts.filter(a => a.sev === 'high' || a.sev === 'med');
     document.title = hi.length ? `(${hi.length}) ⚠ Judge Monitor` : baseTitle;
     const fresh = hi.filter(a => !beeped[a.key]); if (fresh.length) { beep(); fresh.forEach(a => beeped[a.key] = true); }
