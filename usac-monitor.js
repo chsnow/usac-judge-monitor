@@ -240,11 +240,17 @@
       const pend = list.filter(a => a.s === 'active').length; // highlighted when more than 1
       // Flag a climb that still has climbers to judge but no activity within the inactive limit.
       const idle = flagIdle && list.some(a => a.s === 'pending' || a.s === 'active') && (!last || now - last >= CFG.inactiveMin * 60e3);
-      // Done (next column after Remaining): climbers who have topped or whose score here is locked (each counted once).
-      // Remaining: climbers who might still make attempts here: not scratched (DNS/DSQ),
-      // not topped, and attempts used (top_tries) below the max attempts.
-      const remaining = list.filter(a => !a.out && !a.top && (!a.maxTries || (a.tt || 0) < a.maxTries)).length;
-      return `<td>${list.filter(a => a.s === 'pending').length}</td><td>${remaining}</td><td>${list.filter(a => a.top || a.s === 'locked').length}</td>` +
+      // People columns partition the non-scratched climbers, so on every climb of a category
+      // Not started + Remaining + Done = the same total. Scratched (DNS/DSQ) are left out.
+      //   Done:        topped, locked, or out of attempts (top_tries = attempts used)
+      //   Not started: not done and never opened on this climb
+      //   Remaining:   not done, already started, can still make attempts
+      const isDone = a => a.top || a.s === 'locked' || (a.maxTries && (a.tt || 0) >= a.maxTries);
+      const ppl = list.filter(a => !a.out);
+      const done = ppl.filter(isDone).length;
+      const notStarted = ppl.filter(a => !isDone(a) && a.s === 'pending').length;
+      const remaining = ppl.filter(a => !isDone(a) && a.s !== 'pending').length;
+      return `<td>${notStarted}</td><td>${remaining}</td><td>${done}</td>` +
         `<td class="split"${pend > 1 ? ' data-hl' : ''}>${pend}</td><td>${list.filter(a => a.s === 'confirmed').length}</td>` +
         `<td${idle ? ' class="idle"' : ''}>${last ? fmtAgo(now - last) : 'n/a'}</td>`;
     };
