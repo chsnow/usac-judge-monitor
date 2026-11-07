@@ -144,7 +144,7 @@
   #usac-mon td,#usac-mon th{padding:6px 10px;border-bottom:1px solid #eef0f3;text-align:left} #usac-mon th{background:#fafbfc;font-size:12px;color:#5b6475}
   #usac-mon .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:#3bb36b} #usac-mon .dot.high{background:#d62d2d} #usac-mon .dot.med{background:#e8a10c} #usac-mon .dot.low{background:#8a94a6}
   #usac-mon tr.jp td{font-weight:600;background:#fafbfc;border-top:2px solid #e3e6eb} #usac-mon tr.sub td{font-size:13px;color:#4a5263} #usac-mon tr.sub td:first-child{padding-left:28px}
-  #usac-mon td.idle{background:#fff1d6;color:#8a5300;font-weight:700;box-shadow:inset 3px 0 0 #e8a10c}
+  #usac-mon tr td.idle{background:#fff1d6;color:#8a5300;font-weight:700;box-shadow:inset 3px 0 0 #e8a10c}
   #usac-mon .err{background:#fde8e8;color:#8a1c1c;padding:8px 12px;border-radius:6px;margin-bottom:8px}
   </style>
   <header><b>Judge Monitor</b><span id="um-round"></span><span class="sp"></span>
