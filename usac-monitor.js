@@ -147,11 +147,13 @@
     for (const a of asc) {
       if (a.s !== 'active') continue;
       const age = now - a.u;
-      const movedOn = (byPid[a.pid] || []).some(o => o.id !== a.id && o.s !== 'pending' && o.u > a.u + 30e3);
+      // Later activity on other boulders; the most recent one is named in the alert.
+      const later = (byPid[a.pid] || []).filter(o => o.id !== a.id && o.s !== 'pending' && o.u > a.u + 30e3).sort((x, y) => y.u - x.u);
+      const movedOn = later.length > 0;
       if (movedOn || age > CFG.staleMin * 60e3) {
         alerts.push({ key: 'unc-' + a.id + '-' + a.u, sev: movedOn ? 'high' : 'med', jp: a.jp,
           title: `Not confirmed: ${a.jp}, ${B(a.crId, a.bib)} (${L(a.crId, a.cat)})`,
-          detail: `${a.name}, boulder ${a.boulder}: ${score(a)}. Last change ${fmtAgo(age)} ago` + (movedOn ? '. Athlete has since been scored on another boulder.' : '.') });
+          detail: `${a.name}, boulder ${a.boulder}: ${score(a)}. Last change ${fmtAgo(age)} ago` + (movedOn ? `. Athlete has since been scored on ${later[0].jp} (${L(later[0].crId, shortCat(later[0].cat) + '-' + later[0].boulder)}), ${fmtAgo(now - later[0].u)} ago` + (later.length > 1 ? ` and ${later.length - 1} other boulder${later.length > 2 ? 's' : ''}.` : '.') : '.') });
       }
     }
     // Inactive judge position: a position that still has climbers left to judge has had
