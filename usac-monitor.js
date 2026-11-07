@@ -144,6 +144,7 @@
   #usac-mon td,#usac-mon th{padding:6px 10px;border-bottom:1px solid #eef0f3;text-align:left} #usac-mon th{background:#fafbfc;font-size:12px;color:#5b6475}
   #usac-mon .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:#3bb36b} #usac-mon .dot.high{background:#d62d2d} #usac-mon .dot.med{background:#e8a10c} #usac-mon .dot.low{background:#8a94a6}
   #usac-mon tr.jp td{font-weight:600;background:#fafbfc;border-top:2px solid #e3e6eb} #usac-mon tr.sub td{font-size:13px;color:#4a5263} #usac-mon tr.sub td:first-child{padding-left:28px}
+  #usac-mon td.idle{background:#fff1d6;color:#8a5300;font-weight:700;box-shadow:inset 3px 0 0 #e8a10c}
   #usac-mon .err{background:#fde8e8;color:#8a1c1c;padding:8px 12px;border-radius:6px;margin-bottom:8px}
   </style>
   <header><b>Judge Monitor</b><span id="um-round"></span><span class="sp"></span>
@@ -180,11 +181,13 @@
     $('#um-alerts').innerHTML = html;
     host.querySelectorAll('#um-alerts button[data-k]').forEach(b => b.onclick = () => { acked[b.dataset.k] = true; render(null, Date.now()); });
     // One row per position, then a sub-row per live category + boulder judged there.
-    const stats = list => {
+    const stats = (list, flagIdle) => {
       const last = Math.max(0, ...list.filter(a => a.s !== 'pending').map(a => a.u));
+      // Flag a climb that still has climbers to judge but no activity within the inactive limit.
+      const idle = flagIdle && list.some(a => a.s === 'pending' || a.s === 'active') && (!last || now - last >= CFG.inactiveMin * 60e3);
       return `<td>${list.filter(a => a.s === 'pending').length}</td><td>${list.filter(a => a.s === 'active').length}</td>` +
         `<td>${list.filter(a => a.s === 'confirmed').length}</td><td>${list.filter(a => a.s === 'locked').length}</td>` +
-        `<td>${last ? fmtAgo(now - last) : 'n/a'}</td>`;
+        `<td${idle ? ' class="idle"' : ''}>${last ? fmtAgo(now - last) : 'n/a'}</td>`;
     };
     const liveCrs = crs.filter(c => !isFinal(c.state));
     const rows = jpNames.map(jp => {
@@ -193,7 +196,7 @@
       let html = `<tr class="jp"><td><span class="dot ${worst || ''}"></span>${esc(jp)}</td>${stats(mine)}</tr>`;
       for (const c of liveCrs) for (const rid in c.routes) {
         if (routeToJP[rid] !== jp) continue;
-        html += `<tr class="sub"><td>${esc(shortCat(c.cat) + '-' + c.routes[rid])}</td>${stats(mine.filter(a => a.rid === rid))}</tr>`;
+        html += `<tr class="sub"><td>${esc(shortCat(c.cat) + '-' + c.routes[rid])}</td>${stats(mine.filter(a => a.rid === rid), true)}</tr>`;
       }
       return html;
     }).join('');
