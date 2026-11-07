@@ -2,7 +2,7 @@
    Never writes scores: it only runs the site's own read queries. */
 (async function () {
   if (window.__usacMon) { window.__usacMon.show(); return; }
-  const CFG = { pollSec: 15, staleMin: 8, dupWindowMin: 5, quietMin: 12, closeSec: 10 };
+  const CFG = { pollSec: 15, staleMin: 8, dupWindowMin: 5, inactiveMin: 10 };
 
   // ---------- find the app's Vue router + Apollo client ----------
   let root = null;
@@ -45,8 +45,8 @@
   const acked = {};         // alertKey -> true
   let lastPoll = null, lastErr = null, firstPoll = true, timer = null, slowSince = 0;
 
-  // Compact climb label: "M/O-15" + boulder 1 -> "M15-1", "F-19+" -> "F19+".
-  const shortCat = cat => String(cat).replace(/^([A-Za-z])[^-]*-/, '$1');
+  // Compact climb label: "M/O-15" + boulder 1 -> "M15-1", "F-19+" + boulder 5 -> "F19-5".
+  const shortCat = cat => String(cat).replace(/^([A-Za-z])[^-]*-/, '$1').replace(/\+$/, '');
 
   // Categories whose results are finalized drop out of monitoring.
   const isFinal = st => /finish|official|final|closed|archiv/i.test(String(st || ''));
@@ -108,28 +108,20 @@
           detail: `${a.name}, boulder ${a.boulder}: ${score(a)}. Last change ${fmtAgo(age)} ago` + (movedOn ? '. Athlete has since been scored on another boulder.' : '.') });
       }
     }
-    // (1) Two judges on one position: results for two different athletes entered
-    // within CLOSE_SEC of each other (using the site's own timestamps), at least twice
-    // in the window. One judge can't do that: the next climber has to climb first.
-    const win = CFG.dupWindowMin * 60e3, CLOSE = CFG.closeSec * 1000;
-    for (const jp of jpNames) {
-      const ev = events.filter(e => e.jp === jp && e.live && e.scored && now - e.su < win).sort((x, y) => x.su - y.su);
-      const pairs = [];
-      for (let k = 1; k < ev.length; k++) if (ev[k].pid !== ev[k - 1].pid && ev[k].su - ev[k - 1].su <= CLOSE) pairs.push([ev[k - 1], ev[k]]);
-      if (pairs.length >= 2) {
-        const pids = [...new Set(pairs.flat().map(e => e.pid))];
-        const b = pid => { const a = asc.find(x => x.pid === pid && x.jp === jp); return a ? `bib ${a.bib} (${a.cat}, boulder ${a.boulder})` : 'athlete ' + pid; };
-        alerts.push({ key: 'dup-' + jp + '-' + pids.sort().join('-'), sev: 'high', jp,
-          title: `Possible 2 judges on ${jp}`,
-          detail: `${pairs.length} times in the last ${CFG.dupWindowMin} min, results for two different athletes were entered within ${CFG.closeSec} seconds of each other: ${pids.map(b).join(', ')}.` });
-      }
-    }
-    // Quiet position (soft hint: judge may be logged into the wrong JP)
-    const busy = jpNames.filter(jp => events.some(e => e.jp === jp && now - e.t < CFG.quietMin * 60e3));
-    if (busy.length >= Math.ceil(jpNames.length / 2)) for (const jp of jpNames) if (!busy.includes(jp)) {
-      const last = Math.max(0, ...asc.filter(a => a.jp === jp && a.s !== 'pending').map(a => a.u));
-      if (last && now - last < 3 * 3600e3) alerts.push({ key: 'quiet-' + jp + '-' + Math.floor(now / (CFG.quietMin * 60e3)), sev: 'low', jp,
-        title: `${jp} has gone quiet`, detail: `No score changes for ${fmtAgo(now - last)} while other positions are busy. Check the judge is on the right position.` });
+    // Inactive judge position: a position that still has climbers left to judge has had
+    // no score activity for inactiveMin minutes while the session is underway elsewhere.
+    // Often means its judge is logged into the wrong position (or stepped away).
+    const lim = CFG.inactiveMin * 60e3;
+    const lastAt = jp => Math.max(0, ...asc.filter(a => a.jp === jp && a.s !== 'pending').map(a => a.u));
+    const underway = jpNames.some(jp => now - lastAt(jp) < lim);
+    if (underway) for (const jp of jpNames) {
+      const mine = asc.filter(a => a.jp === jp);
+      const workLeft = mine.some(a => a.s === 'pending' || a.s === 'active');
+      const last = lastAt(jp);
+      if (workLeft && now - last >= lim) alerts.push({ key: 'inactive-' + jp + '-' + last, sev: 'med', jp,
+        title: `Inactive judge position: ${jp}`,
+        detail: last ? `No scores entered for ${fmtAgo(now - last)}, but climbers are still waiting to be judged here. Check the judge is on the right position.`
+                     : `No scores entered yet this session, while other positions are active. Check that someone is judging ${jp}.` });
     }
     const order = { high: 0, med: 1, low: 2 };
     return alerts.sort((a, b) => order[a.sev] - order[b.sev]);
@@ -142,7 +134,7 @@
   #usac-mon header{position:sticky;top:0;background:#1d2433;color:#fff;padding:10px 16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
   #usac-mon header b{font-size:16px} #usac-mon header .sp{flex:1}
   #usac-mon header input{width:44px;padding:2px 4px} #usac-mon header button{background:#fff;border:0;border-radius:4px;padding:4px 10px;cursor:pointer}
-  #usac-mon main{padding:16px;display:grid;grid-template-columns:minmax(320px,1fr) minmax(320px,1fr);gap:16px}
+  #usac-mon main{padding:16px;display:grid;grid-template-columns:minmax(280px,2fr) minmax(380px,3fr);gap:16px}
   #usac-mon h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#5b6475;margin:0 0 8px}
   #usac-mon .al{background:#fff;border-left:6px solid #999;border-radius:6px;padding:10px 12px;margin-bottom:8px;box-shadow:0 1px 2px rgba(0,0,0,.08);display:flex;gap:10px}
   #usac-mon .al.high{border-color:#d62d2d} #usac-mon .al.med{border-color:#e8a10c} #usac-mon .al.low{border-color:#8a94a6}
@@ -156,11 +148,13 @@
   </style>
   <header><b>Judge Monitor</b><span id="um-round"></span><span class="sp"></span>
    <label>Unconfirmed after <input id="um-stale" type="number" min="1"> min</label>
+   <label>Inactive position after <input id="um-inactive" type="number" min="1"> min</label>
    <label><input id="um-sound" type="checkbox" checked> Sound</label>
    <span id="um-status"></span><button id="um-hide">Hide</button><button id="um-stop">Stop</button></header>
   <main><section><h2>Alerts</h2><div id="um-alerts"></div></section><section><h2>Judge positions</h2><div id="um-jps"></div></section></main>`;
   document.body.appendChild(host);
   const $ = s => host.querySelector(s);
+  $('#um-inactive').value = CFG.inactiveMin; $('#um-inactive').onchange = e => { CFG.inactiveMin = Math.max(1, +e.target.value || 10); poll(); };
   $('#um-stale').value = CFG.staleMin; $('#um-stale').onchange = e => { CFG.staleMin = Math.max(1, +e.target.value || 8); poll(); };
   $('#um-hide').onclick = () => { host.style.display = 'none'; };
   $('#um-stop').onclick = () => { clearInterval(timer); host.remove(); delete window.__usacMon; document.title = baseTitle; };
@@ -182,7 +176,7 @@
     let html = (now - slowSince < 5 * 60e3) ? '<div class="err">Refreshes were delayed. Chrome slows down tabs that are not in front: keep this tab visible (its own window works well).</div>' : '';
     html += lastErr ? `<div class="err">Last refresh failed: ${esc(lastErr)}. Still retrying. If this persists, reload the page (you may have been logged out).</div>` : '';
     html += alerts.length ? alerts.map(a => `<div class="al ${a.sev}"><div><div class="t">${esc(a.title)}</div><div class="d">${esc(a.detail)}</div></div><button data-k="${esc(a.key)}">Dismiss</button></div>`).join('')
-      : '<div class="ok">All clear. No unconfirmed or conflicting scores.</div>';
+      : '<div class="ok">All clear. No unconfirmed scores or inactive positions.</div>';
     $('#um-alerts').innerHTML = html;
     host.querySelectorAll('#um-alerts button[data-k]').forEach(b => b.onclick = () => { acked[b.dataset.k] = true; render(null, Date.now()); });
     // One row per position, then a sub-row per live category + boulder judged there.
@@ -190,7 +184,7 @@
       const last = Math.max(0, ...list.filter(a => a.s !== 'pending').map(a => a.u));
       return `<td>${list.filter(a => a.s === 'pending').length}</td><td>${list.filter(a => a.s === 'active').length}</td>` +
         `<td>${list.filter(a => a.s === 'confirmed').length}</td><td>${list.filter(a => a.s === 'locked').length}</td>` +
-        `<td>${last ? fmtAgo(now - last) + ' ago' : 'n/a'}</td>`;
+        `<td>${last ? fmtAgo(now - last) : 'n/a'}</td>`;
     };
     const liveCrs = crs.filter(c => !isFinal(c.state));
     const rows = jpNames.map(jp => {
@@ -203,7 +197,7 @@
       }
       return html;
     }).join('');
-    $('#um-jps').innerHTML = `<table><tr><th>Position / climb</th><th>Not started</th><th>Open (unconfirmed)</th><th>Confirmed</th><th>Locked</th><th>Last activity</th></tr>${rows}</table>`;
+    $('#um-jps').innerHTML = `<table><tr><th>Position / climb</th><th>Not started</th><th>Pending</th><th>Confirmed</th><th>Locked</th><th>Last activity</th></tr>${rows}</table>`;
     const hi = alerts.filter(a => a.sev !== 'low');
     document.title = hi.length ? `(${hi.length}) ⚠ Judge Monitor` : baseTitle;
     const fresh = hi.filter(a => !beeped[a.key]); if (fresh.length) { beep(); fresh.forEach(a => beeped[a.key] = true); }
