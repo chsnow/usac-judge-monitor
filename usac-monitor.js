@@ -70,7 +70,7 @@
       for (const { c, r } of results) {
         let items = r.data.category_round.ranking_items; if (typeof items === 'string') items = JSON.parse(items);
         for (const p of items || []) for (const a of p.ascents || []) {
-          asc.push({ id: a.id, crId: c.id, rid: String(a.route_id), pid: a.participant_id, bib: p.bib_number, name: p.name, cat: c.cat, boulder: c.routes[String(a.route_id)] || '?',
+          asc.push({ id: a.id, dns: /\bDNS\b/.test(String(p.score || '')), crId: c.id, rid: String(a.route_id), pid: a.participant_id, bib: p.bib_number, name: p.name, cat: c.cat, boulder: c.routes[String(a.route_id)] || '?',
             jp: routeToJP[String(a.route_id)] || '?', s: a.aasm_state, u: new Date(a.updated_at).getTime(), top: a.top, zone: a.zone, low: a.low_zone, tt: a.top_tries, zt: a.zone_tries, lt: a.low_zone_tries });
         }
       }
@@ -128,7 +128,14 @@
         detail: last ? `No scores entered for ${fmtAgo(now - last)}, but climbers are still waiting to be judged here. Check the judge is on the right position.`
                      : `No scores entered yet this session, while other positions are active. Check that someone is judging ${jp}.` });
     }
-    const order = { high: 0, med: 1, low: 2 };
+    // Everyone topped: every climber (DNS excluded) on a live category + boulder has a top.
+    for (const c of crs.filter(c => isLive(c.state))) for (const rid in c.routes) {
+      const climbers = asc.filter(a => a.crId === c.id && a.rid === rid && !a.dns);
+      if (climbers.length && climbers.every(a => a.top)) alerts.push({ key: 'topped-' + c.id + '-' + rid, sev: 'info', jp: routeToJP[rid] || '?',
+        title: `Everyone topped: ${routeToJP[rid] || '?'}, ${L(c.id, shortCat(c.cat) + '-' + c.routes[rid])}`,
+        detail: `All ${climbers.length} ${c.cat} climbers have topped boulder ${c.routes[rid]} (DNS excluded).` });
+    }
+    const order = { high: 0, med: 1, low: 2, info: 3 };
     return alerts.sort((a, b) => order[a.sev] - order[b.sev]);
   }
 
@@ -139,10 +146,10 @@
   #usac-mon header{position:sticky;top:0;z-index:1;background:#1d2433;color:#fff;padding:5px 12px;display:flex;gap:4px 14px;align-items:center;flex-wrap:wrap;font-size:12px}
   #usac-mon header b{font-size:14px} #usac-mon header .sp{flex:1}
   #usac-mon header input{width:38px;padding:0 3px;font-size:12px} #usac-mon header button{background:#fff;border:0;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:12px}
-  #usac-mon main{padding:8px 12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+  #usac-mon main{padding:8px 12px;display:grid;grid-template-columns:auto minmax(260px,1fr);gap:12px;align-items:start}
   #usac-mon h2{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#5b6475;margin:0 0 4px}
   #usac-mon .al{background:#fff;border-left:5px solid #999;border-radius:5px;padding:6px 10px;margin-bottom:6px;box-shadow:0 1px 2px rgba(0,0,0,.08);display:flex;gap:8px}
-  #usac-mon .al.high{border-color:#d62d2d} #usac-mon .al.med{border-color:#e8a10c} #usac-mon .al.low{border-color:#8a94a6}
+  #usac-mon .al.high{border-color:#d62d2d} #usac-mon .al.med{border-color:#e8a10c} #usac-mon .al.low{border-color:#8a94a6} #usac-mon .al.info{border-color:#2f6fde}
   #usac-mon .al .t{font-weight:600} #usac-mon .al .d{color:#4a5263;font-size:12px} #usac-mon .al button{margin-left:auto;align-self:start;border:1px solid #ccd;background:#fff;border-radius:3px;cursor:pointer;font-size:11px}
   #usac-mon .ok{background:#e7f6ec;color:#1e6b38;padding:8px 10px;border-radius:5px}
   #usac-mon table{width:auto;border-collapse:collapse;background:#fff;border-radius:5px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.08)}
@@ -159,7 +166,7 @@
    <label>Inactive position after <input id="um-inactive" type="number" min="1"> min</label>
    <label><input id="um-sound" type="checkbox" checked> Sound</label>
    <span id="um-status"></span><button id="um-hide">Hide</button><button id="um-stop">Stop</button></header>
-  <main><section><h2>Alerts</h2><div id="um-alerts"></div></section><section><h2>Judge positions</h2><div id="um-jps"></div></section></main>`;
+  <main><section><h2>Judge positions</h2><div id="um-jps"></div></section><section><h2>Alerts</h2><div id="um-alerts"></div></section></main>`;
   document.body.appendChild(host);
   const $ = s => host.querySelector(s);
   $('#um-inactive').value = CFG.inactiveMin; $('#um-inactive').onchange = e => { CFG.inactiveMin = Math.max(1, +e.target.value || 10); poll(); };
@@ -207,7 +214,7 @@
     const liveCrs = crs.filter(c => isLive(c.state));
     const rows = jpNames.map(jp => {
       const mine = asc.filter(a => a.jp === jp);
-      const worst = alerts.filter(a => a.jp === jp).map(a => a.sev).sort()[0];
+      const worst = alerts.filter(a => a.jp === jp && a.sev !== 'info').map(a => a.sev).sort((x, y) => ({ high: 0, med: 1, low: 2 })[x] - ({ high: 0, med: 1, low: 2 })[y])[0];
       let html = `<tr class="jp"><td><span class="dot ${worst || ''}"></span>${esc(jp)}</td>${stats(mine)}</tr>`;
       for (const c of liveCrs) for (const rid in c.routes) {
         if (routeToJP[rid] !== jp) continue;
@@ -216,7 +223,7 @@
       return html;
     }).join('');
     $('#um-jps').innerHTML = `<table><tr><th>Position / climb</th><th>Not started</th><th>Pending</th><th>Confirmed</th><th>Locked</th><th>Last activity</th></tr>${rows}</table>`;
-    const hi = alerts.filter(a => a.sev !== 'low');
+    const hi = alerts.filter(a => a.sev === 'high' || a.sev === 'med');
     document.title = hi.length ? `(${hi.length}) ⚠ Judge Monitor` : baseTitle;
     const fresh = hi.filter(a => !beeped[a.key]); if (fresh.length) { beep(); fresh.forEach(a => beeped[a.key] = true); }
   }
