@@ -212,7 +212,7 @@
   #usac-mon tr.jp td{font-weight:600;background:#f3f5f8;border-top:1px solid #dfe3e9;padding-top:2px;padding-bottom:2px} #usac-mon tr.sub td{font-size:12px;color:#4a5263} #usac-mon tr.sub td:first-child{padding-left:22px}
   #usac-mon td:nth-child(n+2):nth-child(-n+8),#usac-mon th:nth-child(n+2):nth-child(-n+8){text-align:center}
   #usac-mon td.split,#usac-mon th.split{border-left:2px solid #c9ced6}
-  #usac-mon th:nth-child(n+2):nth-child(-n+7){width:78px;min-width:78px;max-width:78px;box-sizing:border-box}
+  #usac-mon th:nth-child(n+2):nth-child(-n+8){width:78px;min-width:78px;max-width:78px;box-sizing:border-box}
   #usac-mon tr.done td{color:#b3b9c4;background:#fafafa} #usac-mon tr.done td.idle{background:#fafafa;color:#b3b9c4;box-shadow:none;font-weight:inherit}
   #usac-mon tr td[data-hl]{background:#fff1d6;color:#8a5300;font-weight:700}
   #usac-mon tr.done td[data-hl]{background:#fafafa;color:#b3b9c4;font-weight:inherit}
