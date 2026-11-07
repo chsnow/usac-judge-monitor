@@ -240,10 +240,11 @@
       const pend = list.filter(a => a.s === 'active').length; // highlighted when more than 1
       // Flag a climb that still has climbers to judge but no activity within the inactive limit.
       const idle = flagIdle && list.some(a => a.s === 'pending' || a.s === 'active') && (!last || now - last >= CFG.inactiveMin * 60e3);
+      // Done (next column after Remaining): climbers who have topped or whose score here is locked (each counted once).
       // Remaining: climbers who might still make attempts here: not scratched (DNS/DSQ),
       // not topped, and attempts used (top_tries) below the max attempts.
       const remaining = list.filter(a => !a.out && !a.top && (!a.maxTries || (a.tt || 0) < a.maxTries)).length;
-      return `<td>${list.filter(a => a.s === 'pending').length}</td><td>${remaining}</td><td>${list.filter(a => a.s === 'locked').length}</td>` +
+      return `<td>${list.filter(a => a.s === 'pending').length}</td><td>${remaining}</td><td>${list.filter(a => a.top || a.s === 'locked').length}</td>` +
         `<td class="split"${pend > 1 ? ' data-hl' : ''}>${pend}</td><td>${list.filter(a => a.s === 'confirmed').length}</td>` +
         `<td${idle ? ' class="idle"' : ''}>${last ? fmtAgo(now - last) : 'n/a'}</td>`;
     };
@@ -259,7 +260,7 @@
       }
       return html;
     }).join('');
-    $('#um-jps').innerHTML = `<table><tr><th>Position / climb</th><th>Not started</th><th>Remaining</th><th>Locked</th><th class="split">Pending</th><th>Confirmed</th><th>Last activity</th></tr>${rows}</table>`;
+    $('#um-jps').innerHTML = `<table><tr><th>Position / climb</th><th>Not started</th><th>Remaining</th><th>Done</th><th class="split">Pending</th><th>Confirmed</th><th>Last activity</th></tr>${rows}</table>`;
     const hi = alerts.filter(a => a.sev === 'high' || a.sev === 'med');
     document.title = hi.length ? `(${hi.length}) ⚠ Judge Monitor` : baseTitle;
     const fresh = hi.filter(a => !beeped[a.key]); if (fresh.length) { beep(); fresh.forEach(a => beeped[a.key] = true); }
