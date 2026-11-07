@@ -64,7 +64,7 @@
       for (const { c, r } of results) {
         let items = r.data.category_round.ranking_items; if (typeof items === 'string') items = JSON.parse(items);
         for (const p of items || []) for (const a of p.ascents || []) {
-          asc.push({ id: a.id, pid: a.participant_id, bib: p.bib_number, name: p.name, cat: c.cat, boulder: c.routes[String(a.route_id)] || '?',
+          asc.push({ id: a.id, rid: String(a.route_id), pid: a.participant_id, bib: p.bib_number, name: p.name, cat: c.cat, boulder: c.routes[String(a.route_id)] || '?',
             jp: routeToJP[String(a.route_id)] || '?', s: a.aasm_state, u: new Date(a.updated_at).getTime(), top: a.top, zone: a.zone, low: a.low_zone, tt: a.top_tries, zt: a.zone_tries, lt: a.low_zone_tries });
         }
       }
@@ -148,6 +148,7 @@
   #usac-mon table{width:100%;border-collapse:collapse;background:#fff;border-radius:6px;overflow:hidden;box-shadow:0 1px 2px rgba(0,0,0,.08)}
   #usac-mon td,#usac-mon th{padding:6px 10px;border-bottom:1px solid #eef0f3;text-align:left} #usac-mon th{background:#fafbfc;font-size:12px;color:#5b6475}
   #usac-mon .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:#3bb36b} #usac-mon .dot.high{background:#d62d2d} #usac-mon .dot.med{background:#e8a10c} #usac-mon .dot.low{background:#8a94a6}
+  #usac-mon tr.jp td{font-weight:600;background:#fafbfc;border-top:2px solid #e3e6eb} #usac-mon tr.sub td{font-size:13px;color:#4a5263} #usac-mon tr.sub td:first-child{padding-left:28px}
   #usac-mon .err{background:#fde8e8;color:#8a1c1c;padding:8px 12px;border-radius:6px;margin-bottom:8px}
   </style>
   <header><b>Judge Monitor</b><span id="um-round"></span><span class="sp"></span>
@@ -181,14 +182,25 @@
       : '<div class="ok">All clear. No unconfirmed or conflicting scores.</div>';
     $('#um-alerts').innerHTML = html;
     host.querySelectorAll('#um-alerts button[data-k]').forEach(b => b.onclick = () => { acked[b.dataset.k] = true; render(null, Date.now()); });
+    // One row per position, then a sub-row per live category + boulder judged there.
+    const stats = list => {
+      const last = Math.max(0, ...list.filter(a => a.s !== 'pending').map(a => a.u));
+      return `<td>${list.filter(a => a.s === 'pending').length}</td><td>${list.filter(a => a.s === 'active').length}</td>` +
+        `<td>${list.filter(a => a.s === 'confirmed').length}</td><td>${list.filter(a => a.s === 'locked').length}</td>` +
+        `<td>${last ? fmtAgo(now - last) + ' ago' : 'n/a'}</td>`;
+    };
+    const liveCrs = crs.filter(c => !isFinal(c.state));
     const rows = jpNames.map(jp => {
       const mine = asc.filter(a => a.jp === jp);
-      const open = mine.filter(a => a.s === 'active').length, done = mine.filter(a => a.s === 'confirmed').length, locked = mine.filter(a => a.s === 'locked').length;
-      const last = Math.max(0, ...mine.filter(a => a.s !== 'pending').map(a => a.u));
       const worst = alerts.filter(a => a.jp === jp).map(a => a.sev).sort()[0];
-      return `<tr><td><span class="dot ${worst || ''}"></span>${esc(jp)}</td><td>${open}</td><td>${done}</td><td>${locked}</td><td>${last ? fmtAgo(now - last) + ' ago' : 'n/a'}</td></tr>`;
+      let html = `<tr class="jp"><td><span class="dot ${worst || ''}"></span>${esc(jp)}</td>${stats(mine)}</tr>`;
+      for (const c of liveCrs) for (const rid in c.routes) {
+        if (routeToJP[rid] !== jp) continue;
+        html += `<tr class="sub"><td>${esc(c.cat)} · boulder ${esc(c.routes[rid])}</td>${stats(mine.filter(a => a.rid === rid))}</tr>`;
+      }
+      return html;
     }).join('');
-    $('#um-jps').innerHTML = `<table><tr><th>Position</th><th>Open (unconfirmed)</th><th>Confirmed</th><th>Locked</th><th>Last activity</th></tr>${rows}</table>`;
+    $('#um-jps').innerHTML = `<table><tr><th>Position / climb</th><th>Not started</th><th>Open (unconfirmed)</th><th>Confirmed</th><th>Locked</th><th>Last activity</th></tr>${rows}</table>`;
     const hi = alerts.filter(a => a.sev !== 'low');
     document.title = hi.length ? `(${hi.length}) ⚠ Judge Monitor` : baseTitle;
     const fresh = hi.filter(a => !beeped[a.key]); if (fresh.length) { beep(); fresh.forEach(a => beeped[a.key] = true); }
