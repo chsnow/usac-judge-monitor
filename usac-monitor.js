@@ -176,12 +176,12 @@
     host.querySelectorAll('#um-alerts button[data-k]').forEach(b => b.onclick = () => { acked[b.dataset.k] = true; render(null, Date.now()); });
     const rows = jpNames.map(jp => {
       const mine = asc.filter(a => a.jp === jp);
-      const open = mine.filter(a => a.s === 'active').length, done = mine.filter(a => a.s === 'confirmed').length;
+      const open = mine.filter(a => a.s === 'active').length, done = mine.filter(a => a.s === 'confirmed').length, locked = mine.filter(a => a.s === 'locked').length;
       const last = Math.max(0, ...mine.filter(a => a.s !== 'pending').map(a => a.u));
       const worst = alerts.filter(a => a.jp === jp).map(a => a.sev).sort()[0];
-      return `<tr><td><span class="dot ${worst || ''}"></span>${esc(jp)}</td><td>${open}</td><td>${done}</td><td>${last ? fmtAgo(now - last) + ' ago' : 'n/a'}</td></tr>`;
+      return `<tr><td><span class="dot ${worst || ''}"></span>${esc(jp)}</td><td>${open}</td><td>${done}</td><td>${locked}</td><td>${last ? fmtAgo(now - last) + ' ago' : 'n/a'}</td></tr>`;
     }).join('');
-    $('#um-jps').innerHTML = `<table><tr><th>Position</th><th>Open (unconfirmed)</th><th>Confirmed</th><th>Last activity</th></tr>${rows}</table>`;
+    $('#um-jps').innerHTML = `<table><tr><th>Position</th><th>Open (unconfirmed)</th><th>Confirmed</th><th>Locked</th><th>Last activity</th></tr>${rows}</table>`;
     const hi = alerts.filter(a => a.sev !== 'low');
     document.title = hi.length ? `(${hi.length}) ⚠ Judge Monitor` : baseTitle;
     const fresh = hi.filter(a => !beeped[a.key]); if (fresh.length) { beep(); fresh.forEach(a => beeped[a.key] = true); }
