@@ -2,7 +2,7 @@
    Never writes scores: it only runs the site's own read queries. */
 (async function () {
   if (window.__usacMon) { window.__usacMon.show(); return; }
-  const CFG = { pollSec: 15, staleMin: 8, dupWindowMin: 5, quietMin: 12 };
+  const CFG = { pollSec: 15, staleMin: 8, dupWindowMin: 5, quietMin: 12, closeSec: 10 };
 
   // ---------- find the app's Vue router + Apollo client ----------
   let root = null;
@@ -43,7 +43,7 @@
   const seen = {};          // ascentId -> {u, s}
   const events = [];        // {t, jp, pid, aid}
   const acked = {};         // alertKey -> true
-  let lastPoll = null, lastErr = null, firstPoll = true, timer = null;
+  let lastPoll = null, lastErr = null, firstPoll = true, timer = null, slowSince = 0;
 
   // Categories whose results are finalized drop out of monitoring.
   const isFinal = st => /finish|official|final|closed|archiv/i.test(String(st || ''));
@@ -77,11 +77,12 @@
         if (a.s !== 'pending' && (!prev || prev.u !== a.u)) {
           // On the first poll, seed history from updated_at so recent activity counts.
           if (!firstPoll || now - a.u < CFG.dupWindowMin * 60e3)
-            events.push({ t: firstPoll ? a.u : now, live: !firstPoll, scored: !!prev && prev.sig !== sig, jp: a.jp, pid: a.pid, aid: a.id });
+            events.push({ t: firstPoll ? a.u : now, su: a.u, live: !firstPoll, scored: !!prev && prev.sig !== sig, jp: a.jp, pid: a.pid, aid: a.id });
         }
         seen[a.id] = { u: a.u, s: a.s, sig };
       }
       while (events.length && now - events[0].t > 60 * 60e3) events.shift();
+      if (lastPoll && now - lastPoll > 45e3) slowSince = now;
       firstPoll = false; lastPoll = now; lastErr = null;
       render(asc, now);
     } catch (e) { lastErr = e.message || String(e); render(null, Date.now()); }
@@ -104,20 +105,20 @@
           detail: `${a.name}, boulder ${a.boulder}: ${score(a)}. Last change ${fmtAgo(age)} ago` + (movedOn ? '. Athlete has since been scored on another boulder.' : '.') });
       }
     }
-    // (1) Two judges on one position: two different athletes' scores changing in the
-    // same refresh, at least twice in the window. Taking turns (A, B, A) doesn't trigger
-    // this, because one boulder only has one climber at a time.
-    const win = CFG.dupWindowMin * 60e3;
+    // (1) Two judges on one position: results for two different athletes entered
+    // within CLOSE_SEC of each other (using the site's own timestamps), at least twice
+    // in the window. One judge can't do that: the next climber has to climb first.
+    const win = CFG.dupWindowMin * 60e3, CLOSE = CFG.closeSec * 1000;
     for (const jp of jpNames) {
-      const byT = {};
-      events.filter(e => e.jp === jp && e.live && e.scored && now - e.t < win).forEach(e => (byT[e.t] = byT[e.t] || new Set()).add(e.pid));
-      const hits = Object.values(byT).filter(s => s.size >= 2);
-      if (hits.length >= 2) {
-        const pids = [...new Set(hits.flatMap(s => [...s]))];
+      const ev = events.filter(e => e.jp === jp && e.live && e.scored && now - e.su < win).sort((x, y) => x.su - y.su);
+      const pairs = [];
+      for (let k = 1; k < ev.length; k++) if (ev[k].pid !== ev[k - 1].pid && ev[k].su - ev[k - 1].su <= CLOSE) pairs.push([ev[k - 1], ev[k]]);
+      if (pairs.length >= 2) {
+        const pids = [...new Set(pairs.flat().map(e => e.pid))];
         const b = pid => { const a = asc.find(x => x.pid === pid && x.jp === jp); return a ? `bib ${a.bib} (${a.cat}, boulder ${a.boulder})` : 'athlete ' + pid; };
         alerts.push({ key: 'dup-' + jp + '-' + pids.sort().join('-'), sev: 'high', jp,
           title: `Possible 2 judges on ${jp}`,
-          detail: `${hits.length} times in the last ${CFG.dupWindowMin} min, results for different athletes were entered within the same ${CFG.pollSec} seconds: ${pids.map(b).join(', ')}.` });
+          detail: `${pairs.length} times in the last ${CFG.dupWindowMin} min, results for two different athletes were entered within ${CFG.closeSec} seconds of each other: ${pids.map(b).join(', ')}.` });
       }
     }
     // Quiet position (soft hint: judge may be logged into the wrong JP)
@@ -174,7 +175,8 @@
     $('#um-round').textContent = round ? `${round.name} · watching ${liveCats.length ? liveCats.join(', ') : 'no categories'}` + (doneCats.length ? ` · finalized, not watched: ${doneCats.join(', ')}` : '') : '';
     $('#um-status').textContent = lastPoll ? `Updated ${new Date(lastPoll).toLocaleTimeString()}` : 'Loading…';
     const alerts = computeAlerts(asc, now).filter(a => !acked[a.key]);
-    let html = lastErr ? `<div class="err">Last refresh failed: ${esc(lastErr)}. Still retrying. If this persists, reload the page (you may have been logged out).</div>` : '';
+    let html = (now - slowSince < 5 * 60e3) ? '<div class="err">Refreshes were delayed. Chrome slows down tabs that are not in front: keep this tab visible (its own window works well).</div>' : '';
+    html += lastErr ? `<div class="err">Last refresh failed: ${esc(lastErr)}. Still retrying. If this persists, reload the page (you may have been logged out).</div>` : '';
     html += alerts.length ? alerts.map(a => `<div class="al ${a.sev}"><div><div class="t">${esc(a.title)}</div><div class="d">${esc(a.detail)}</div></div><button data-k="${esc(a.key)}">Dismiss</button></div>`).join('')
       : '<div class="ok">All clear. No unconfirmed or conflicting scores.</div>';
     $('#um-alerts').innerHTML = html;
