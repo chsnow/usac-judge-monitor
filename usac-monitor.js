@@ -97,21 +97,25 @@
   const L = (id, text) => `\u0001${id}\u0002${text}\u0003`;
   const B = (id, bib) => `\u0004${id}\u0005${bib}\u0006`;
   // A climb is "topped" when every non-DNS climber in that category has topped it.
-  // A JP is "done" when it has at least one active climb, all its active climbs are topped,
-  // and no not-yet-started category has a climb there (finalized categories don't count).
+  // A JP is "done" when every climb there is either fully topped or in a finalized category,
+  // and no not-yet-started category has a climb there.
   function doneState(asc) {
     const topped = new Set(), jpDone = new Set();
     for (const c of crs.filter(c => isLive(c.state))) for (const rid in c.routes) {
       const cl = asc.filter(a => a.crId === c.id && a.rid === rid && !a.dns);
       if (cl.length && cl.every(a => a.top)) topped.add(c.id + ':' + rid);
     }
+    const sessionOn = crs.some(c => isLive(c.state));
     for (const jp of jpNames) {
-      let live = 0, ok = true;
+      let used = 0, ok = true;
       for (const c of crs) for (const rid in c.routes) {
-        if (routeToJP[rid] !== jp || isFinal(c.state)) continue;
-        if (!isLive(c.state) || !topped.has(c.id + ':' + rid)) ok = false; else live++;
+        if (routeToJP[rid] !== jp) continue;
+        used++;
+        if (isFinal(c.state)) continue;                                  // finalized: done
+        if (!isLive(c.state) || !topped.has(c.id + ':' + rid)) ok = false; // not started, or still climbing
       }
-      if (ok && live) jpDone.add(jp);
+      // Finished: every climb here is topped or finalized, while a session is still running.
+      if (ok && used && sessionOn) jpDone.add(jp);
     }
     return { topped, jpDone };
   }
@@ -151,7 +155,7 @@
     const { topped, jpDone } = doneState(asc);
     for (const jp of jpNames) if (jpDone.has(jp)) alerts.push({ key: 'jpdone-' + jp, sev: 'done', jp,
       title: `JP finished: ${jp}`,
-      detail: `Every climber has topped every boulder judged here (DNS excluded), and no unstarted category uses this position. The ${jp} volunteers can be released.` });
+      detail: `Every climb here is either fully topped (DNS excluded) or in a finalized category, and no unstarted category uses this position. The ${jp} volunteers can be released.` });
     for (const c of crs.filter(c => isLive(c.state))) for (const rid in c.routes) {
       const jp = routeToJP[rid] || '?';
       if (!topped.has(c.id + ':' + rid) || jpDone.has(jp)) continue;   // JP-finished alert covers it
