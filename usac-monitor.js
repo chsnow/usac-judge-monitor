@@ -48,6 +48,7 @@
   const priorChanges = {};  // latched "prior score changed" findings, key -> {a, was, now, diffs, at}
   const events = [];        // {t, jp, pid, aid}
   const acked = {};         // alertKey -> true
+  const firstShown = {};    // alertKey -> when the monitor first showed it
   // Persist the confirmed-result cache, open prior-change alerts and dismissals per round,
   // so a page reload (or Chrome discarding the tab) doesn't lose what we've already seen.
   const storeKey = 'usacJudgeMonitor:round:' + roundId;
@@ -216,7 +217,7 @@
       const { a, was, now: cur, at } = priorChanges[key];
       const diffs = priorDiffs(was, cur);   // re-check: drops low-zone-only findings in rounds without low zones
       if (!diffs.length) continue;
-      alerts.push({ key, sev: 'high', jp: a.jp,
+      alerts.push({ key, t: at, sev: 'high', jp: a.jp,
         title: `ERROR: Prior score changed: ${a.jp}, ${B(a.crId, a.bib)} (${L(a.crId, a.cat)})`,
         detail: `${a.name}, boulder ${a.boulder}. Was (confirmed): ${fmtRes(was)}. Now (${a.s === 'active' ? 'pending' : a.s}): ${fmtRes(cur)}. ${diffs.join('; ')}. Spotted ${fmtAgo(now - at)} ago.` });
     }
@@ -229,7 +230,7 @@
       const later = (byPid[a.pid] || []).filter(o => o.id !== a.id && o.s !== 'pending' && o.u > a.u + 30e3).sort((x, y) => y.u - x.u);
       const movedOn = later.length > 0;
       if (movedOn || age > CFG.staleMin * 60e3) {
-        alerts.push({ key: 'unc-' + a.id + '-' + a.u, sev: movedOn ? 'high' : 'med', jp: a.jp,
+        alerts.push({ key: 'unc-' + a.id + '-' + a.u, t: movedOn ? later[0].u : a.u + CFG.staleMin * 60e3, sev: movedOn ? 'high' : 'med', jp: a.jp,
           title: `Not confirmed: ${a.jp}, ${B(a.crId, a.bib)} (${L(a.crId, a.cat)})`,
           detail: `${a.name}, boulder ${a.boulder}: ${score(a)}. Last change ${fmtAgo(age)} ago` + (movedOn ? `. Athlete has since been scored on ${later[0].jp} (${L(later[0].crId, shortCat(later[0].cat) + '-' + later[0].boulder)}), ${fmtAgo(now - later[0].u)} ago` + (later.length > 1 ? ` and ${later.length - 1} other boulder${later.length > 2 ? 's' : ''}.` : '.') : '.') });
       }
@@ -244,21 +245,21 @@
       const mine = asc.filter(a => a.jp === jp);
       const workLeft = mine.some(a => a.s === 'pending' || a.s === 'active');
       const last = lastAt(jp);
-      if (workLeft && now - last >= lim) alerts.push({ key: 'inactive-' + jp + '-' + last, sev: 'med', jp,
+      if (workLeft && now - last >= lim) alerts.push({ key: 'inactive-' + jp + '-' + last, t: last ? last + lim : null, sev: 'med', jp,
         title: `Inactive judge position: ${jp}`,
         detail: last ? `No scores entered for ${fmtAgo(now - last)}, but climbers are still waiting to be judged here. Check the judge is on the right position.`
                      : `No scores entered yet this session, while other positions are active. Check that someone is judging ${jp}.` });
     }
     // Everyone topped (per climb) and JP finished (every climb at the position is done).
     const { topped, jpDone } = doneState(asc);
-    for (const jp of jpNames) if (jpDone.has(jp)) alerts.push({ key: 'jpdone-' + jp, sev: 'done', jp,
+    for (const jp of jpNames) if (jpDone.has(jp)) alerts.push({ key: 'jpdone-' + jp, t: Math.max(0, ...asc.filter(a => a.jp === jp && a.s !== 'pending').map(a => a.u)) || null, sev: 'done', jp,
       title: `JP finished: ${jp}`,
       detail: `Every climb here is either fully topped (DNS excluded) or in a finalized category, and no unstarted category uses this position. The ${jp} volunteers can be released.` });
     for (const c of crs.filter(c => isLive(c.state))) for (const rid in c.routes) {
       const jp = routeToJP[rid] || '?';
       if (!topped.has(c.id + ':' + rid) || jpDone.has(jp)) continue;   // JP-finished alert covers it
       const n = asc.filter(a => a.crId === c.id && a.rid === rid && !a.dns).length;
-      alerts.push({ key: 'topped-' + c.id + '-' + rid, sev: 'info', jp,
+      alerts.push({ key: 'topped-' + c.id + '-' + rid, t: Math.max(0, ...asc.filter(a => a.crId === c.id && a.rid === rid).map(a => a.u)) || null, sev: 'info', jp,
         title: `Everyone topped: ${jp}, ${L(c.id, shortCat(c.cat) + '-' + c.routes[rid])}`,
         detail: `All ${n} ${c.cat} climbers have topped boulder ${c.routes[rid]} (DNS excluded).` });
     }
@@ -269,8 +270,10 @@
         title: `Counts don't add up: ${jp}, ${L(c.id, shortCat(c.cat) + '-' + c.routes[rid])}`,
         detail: `${c.cat} has ${k.total} registered, but this climb shows ${k.notStarted} not started + ${k.remaining} remaining + ${k.done} done + ${k.dns} DNS = ${k.notStarted + k.remaining + k.done + k.dns}. A climber may be missing from (or duplicated on) this boulder.` });
     }
-    const order = { high: 0, med: 1, low: 2, done: 3, info: 4 };
-    return alerts.sort((a, b) => order[a.sev] - order[b.sev]);
+    // Newest first. Each alert's time is when its problem happened (when it could be worked
+    // out), otherwise when the monitor first showed it.
+    for (const al of alerts) { if (!firstShown[al.key]) firstShown[al.key] = now; if (!al.t) al.t = firstShown[al.key]; }
+    return alerts.sort((a, b) => b.t - a.t);
   }
 
   // ---------- UI ----------
