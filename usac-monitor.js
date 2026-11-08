@@ -1,7 +1,9 @@
 /* USAC Judge Monitor — read-only. Run inside a logged-in usac.results.info admin tab.
    Never writes scores: it only runs the site's own read queries. */
 (async function () {
-  if (window.__usacMon) { window.__usacMon.show(); return; }
+  // Clicking the bookmark always starts fresh on the round you're looking at now:
+  // stop any monitor already running in this tab (it may be watching another round/event).
+  { const oldStop = document.querySelector('#usac-mon #um-stop'); if (oldStop) oldStop.click(); delete window.__usacMon; }
   const CFG = { pollSec: 15, staleMin: 8, dupWindowMin: 5, inactiveMin: 10 };
 
   // ---------- find the app's Vue router + Apollo client ----------
@@ -314,7 +316,7 @@
     }, 300);
   });
 
-  window.__usacMon = { show: () => { host.style.display = ''; } };
+  window.__usacMon = { show: () => { host.style.display = ''; }, stop: () => $('#um-stop').click() };
   await poll();
   timer = setInterval(poll, CFG.pollSec * 1000);
 })();
