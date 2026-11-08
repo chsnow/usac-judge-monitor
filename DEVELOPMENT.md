@@ -88,10 +88,40 @@ position with a sub-row per live climb (label like `M15-1`, plus dropped from `1
 - Category names and climb labels link to the category results page (new tab). Bibs open the
   results page and type the bib into its search box (the page has no URL parameter for it).
 
+## Phone alerts (ntfy.sh)
+
+- **Phones** button in the top bar opens a panel. Settings live in
+  `localStorage['usacJudgeMonitor:phones']` = `{on, topic, done}`, per laptop, shared by all
+  rounds. `on` is **off by default** so only the laptop that opts in sends; two senders on one
+  topic would double every ping. The topic is generated as `usacjm-` + 8 typeable characters
+  (no 0/o/1/l/i) because iPhone users have to type it.
+- Sending: `notifyPhones(alerts)` runs at the end of `render`. It sends `high` and `med`
+  alerts (plus `done` = JP finished if ticked), once per alert key. Sent keys are in
+  `notified`, saved with the round state so a reload doesn't resend. More than 3 new at once
+  go as one summary. A failed send un-marks its keys, so the next refresh retries.
+- Transport: `fetch('https://ntfy.sh/', {method:'POST', body: JSON.stringify({topic, title,
+  message, priority, tags, click})})`. Posting the JSON **without** a Content-Type header
+  keeps it a simple CORS request (no preflight); ntfy still parses it as JSON. The site has
+  **no CSP** (checked Nov 8, 2026). If it ever adds `connect-src`, this breaks.
+- `phoneMsg` turns an alert into plain text: strips the link markers, puts the JP first,
+  drops the athlete name (alerts that include a name carry it as `nm`), sets priority
+  5/4/3 for red/yellow/green and `click` to the category results page.
+- `phones.html` is the setup page (printable). It reads the topic from the URL `#fragment`
+  (never sent to a server), draws QR codes with the vendored `qrcode.js`
+  (qrcode-generator 1.4.4, MIT) for the App Store, Google Play and an Android
+  `ntfy://ntfy.sh/<topic>` subscribe link. iOS has no deep link, so iPhone users type the topic.
+- Testing without bothering real phones: set the topic to a throwaway, turn sending on, then
+  read it back with `GET https://ntfy.sh/<topic>/json` plus `poll=1` and `since=all` query
+  parameters. Afterwards turn it off, restore the topic, stop the monitor, and delete
+  `notified` from the round's saved state, or the real alerts won't be sent later.
+- Testing a branch before pushing to main: load
+  `https://cdn.jsdelivr.net/gh/chsnow/usac-judge-monitor@<commit>/usac-monitor.js` with a
+  script tag in the admin tab (raw.githubusercontent won't execute).
+
 ## Persistence
 
 `localStorage['usacJudgeMonitor:round:<roundId>']` keeps the confirmed-result cache, latched
-prior-change alerts and dismissals, so reloads and re-clicks pick up where they left off.
+prior-change alerts, dismissals and which alerts were sent to phones, so reloads and re-clicks pick up where they left off.
 
 ## Gotchas for a Claude in Chrome session
 
