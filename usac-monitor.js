@@ -139,7 +139,13 @@
     k.ok = k.total === k.notStarted + k.remaining + k.done + k.dns;
     return k;
   }
-  function fmtAgo(ms) { const m = Math.floor(ms / 60e3); return m < 1 ? '<1 min' : m + ' min'; }
+  function fmtAgo(ms) {
+    const m = Math.floor(ms / 60e3);
+    if (m < 1) return '<1 min';
+    if (m < 120) return m + ' min';
+    const h = Math.floor(m / 60); if (h < 48) return h + ' h';
+    return Math.floor(h / 24) + ' days';
+  }
   function score(a) { return [a.top ? 'T' + a.tt : null, a.zone ? 'Z' + a.zt : null, a.low ? 'LZ' + a.lt : null].filter(Boolean).join(' ') || 'no zone yet'; }
 
   function computeAlerts(asc, now) {
