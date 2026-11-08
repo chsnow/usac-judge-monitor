@@ -73,6 +73,19 @@
   const isFinal = st => /finish|official|final|closed|archiv/i.test(String(st || ''));
   const isLive = st => st === 'active';
 
+  // Does this round score low zones? Rounds without low-zone holds have use_low_zone: false, and
+  // the site then auto-fills "low zone on attempt 1" whenever a zone is scored, so we ignore it.
+  let useLowZone = true, lzCheckedAt = 0;
+  async function loadLowZoneSetting() {
+    if (Date.now() - lzCheckedAt < 5 * 60e3 || !crs.length) return;
+    try {
+      const r = await client.query({ query: crDoc, variables: { id: Number(crs[0].id) }, fetchPolicy: 'network-only' });
+      const bpf = ((r.data.category_round.round || {}).settings || {}).boulder_points_formats || {};
+      useLowZone = bpf.use_low_zone !== false;
+      lzCheckedAt = Date.now();
+    } catch (e) {}
+  }
+
   async function loadRound() {
     const r = await client.query({ query: roundDoc, variables: { id: Number(roundId) }, fetchPolicy: 'network-only' });
     round = Object.assign({}, r.data.round); routeToJP = {}; jpNames = [];
@@ -83,6 +96,7 @@
   async function poll() {
     try {
       await loadRound();
+      await loadLowZoneSetting();
       const live = crs.filter(c => isLive(c.state));
       const results = await Promise.all(live.map(c => client.query({ query: rankDoc, variables: { id: c.id }, fetchPolicy: 'network-only' }).then(r => ({ c, r }))));
       const asc = [];
@@ -174,6 +188,7 @@
   function priorDiffs(was, cur) {
     const d = [];
     for (const [m, t, name] of MILESTONES) {
+      if (m === 'low' && !useLowZone) continue;
       if (was[m] && !cur[m]) d.push(`${name} on attempt ${was[t]} was removed`);
       else if (was[m] && cur[m] && was[t] !== cur[t]) d.push(`${name} moved from attempt ${was[t]} to attempt ${cur[t]}`);
       else if (!was[m] && cur[m] && !was.top && cur[t] <= was.tt) d.push(`${name} added on earlier attempt ${cur[t]}`);
@@ -182,7 +197,7 @@
     return d;
   }
   function fmtRes(x) {
-    const r = [x.top ? `Top on ${x.tt}` : null, x.zone ? `Zone on ${x.zt}` : null, x.low ? `Low zone on ${x.lt}` : null].filter(Boolean);
+    const r = [x.top ? `Top on ${x.tt}` : null, x.zone ? `Zone on ${x.zt}` : null, x.low && useLowZone ? `Low zone on ${x.lt}` : null].filter(Boolean);
     return `${x.tt} attempt${x.tt === 1 ? '' : 's'}, ` + (r.length ? r.join(', ') : 'nothing scored');
   }
   function fmtAgo(ms) {
@@ -192,13 +207,15 @@
     const h = Math.floor(m / 60); if (h < 48) return h + ' h';
     return Math.floor(h / 24) + ' days';
   }
-  function score(a) { return [a.top ? 'T' + a.tt : null, a.zone ? 'Z' + a.zt : null, a.low ? 'LZ' + a.lt : null].filter(Boolean).join(' ') || 'no zone yet'; }
+  function score(a) { return [a.top ? 'T' + a.tt : null, a.zone ? 'Z' + a.zt : null, a.low && useLowZone ? 'LZ' + a.lt : null].filter(Boolean).join(' ') || 'no zone yet'; }
 
   function computeAlerts(asc, now) {
     const alerts = [];
     // Prior score changed (latched until dismissed, even if it is put back).
     for (const key in priorChanges) {
-      const { a, was, now: cur, diffs, at } = priorChanges[key];
+      const { a, was, now: cur, at } = priorChanges[key];
+      const diffs = priorDiffs(was, cur);   // re-check: drops low-zone-only findings in rounds without low zones
+      if (!diffs.length) continue;
       alerts.push({ key, sev: 'high', jp: a.jp,
         title: `ERROR: Prior score changed: ${a.jp}, ${B(a.crId, a.bib)} (${L(a.crId, a.cat)})`,
         detail: `${a.name}, boulder ${a.boulder}. Was (confirmed): ${fmtRes(was)}. Now (${a.s === 'active' ? 'pending' : a.s}): ${fmtRes(cur)}. ${diffs.join('; ')}. Spotted ${fmtAgo(now - at)} ago.` });
