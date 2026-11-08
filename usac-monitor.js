@@ -200,7 +200,7 @@
     for (const key in priorChanges) {
       const { a, was, now: cur, diffs, at } = priorChanges[key];
       alerts.push({ key, sev: 'high', jp: a.jp,
-        title: `Prior score changed: ${a.jp}, ${B(a.crId, a.bib)} (${L(a.crId, a.cat)})`,
+        title: `ERROR: Prior score changed: ${a.jp}, ${B(a.crId, a.bib)} (${L(a.crId, a.cat)})`,
         detail: `${a.name}, boulder ${a.boulder}. Was (confirmed): ${fmtRes(was)}. Now (${a.s === 'active' ? 'pending' : a.s}): ${fmtRes(cur)}. ${diffs.join('; ')}. Spotted ${fmtAgo(now - at)} ago.` });
     }
     const byPid = {}; asc.forEach(a => (byPid[a.pid] = byPid[a.pid] || []).push(a));
