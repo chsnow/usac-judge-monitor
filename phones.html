@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>Judge Monitor: phone alerts</title>
+<style>
+  body{font:16px/1.45 -apple-system,system-ui,sans-serif;color:#1d2433;max-width:820px;margin:24px auto;padding:0 16px}
+  h1{font-size:26px;margin:0 0 4px} h2{font-size:19px;margin:26px 0 8px;border-bottom:2px solid #1d2433;padding-bottom:3px}
+  .lead{color:#4a5263;margin:0 0 6px}
+  .row{display:flex;gap:18px;flex-wrap:wrap}
+  .card{flex:1 1 220px;border:1px solid #dfe3e9;border-radius:8px;padding:12px 14px;text-align:center}
+  .card h3{margin:0 0 6px;font-size:17px}
+  .card svg{width:190px;height:190px;display:block;margin:4px auto}
+  .card a{font-size:12px;word-break:break-all;color:#2f6fde}
+  .topic{font:700 28px/1.2 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.04em;background:#f3f5f8;border-radius:6px;padding:8px 12px;display:inline-block;margin:6px 0}
+  ol{margin:6px 0;padding-left:22px;text-align:left} li{margin:3px 0}
+  .note{font-size:13px;color:#5b6475}
+  .warn{background:#fff1d6;color:#8a5300;padding:8px 12px;border-radius:6px}
+  button{font-size:14px;padding:5px 14px;border-radius:5px;border:1px solid #ccd;background:#fff;cursor:pointer}
+  @media print{button{display:none} body{margin:0} .card{break-inside:avoid}}
+</style>
+<h1>Judge Monitor alerts on your phone</h1>
+<p class="lead">Get a notification when the monitor spots a problem at a judge position: unconfirmed scores, changed scores, an inactive position. Takes about a minute.</p>
+<p><button onclick="print()">Print this page</button></p>
+
+<h2>1. Install the free ntfy app</h2>
+<div class="row">
+  <div class="card"><h3>iPhone</h3><div id="qr-ios"></div><a id="a-ios"></a></div>
+  <div class="card"><h3>Android</h3><div id="qr-android"></div><a id="a-android"></a></div>
+</div>
+<p class="note">Point your phone's camera at the code for your phone. ntfy needs no account. Allow notifications when it asks.</p>
+
+<h2>2. Subscribe to this comp's alerts</h2>
+<div id="sub"></div>
+
+<script src="qrcode.js"></script>
+<script>
+  const IOS = 'https://apps.apple.com/us/app/ntfy/id1625396347';
+  const ANDROID = 'https://play.google.com/store/apps/details?id=io.heckel.ntfy';
+  const qr = (id, text) => { const q = qrcode(0, 'M'); q.addData(text); q.make(); document.getElementById(id).innerHTML = q.createSvgTag(6, 2); };
+  const link = (id, url) => { const a = document.getElementById(id); a.href = url; a.textContent = url; };
+  qr('qr-ios', IOS); link('a-ios', IOS);
+  qr('qr-android', ANDROID); link('a-android', ANDROID);
+
+  // The topic comes in the URL's #fragment, which is never sent to any server.
+  const topic = decodeURIComponent(location.hash.slice(1)).replace(/[^A-Za-z0-9_-]/g, '');
+  const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const sub = document.getElementById('sub');
+  if (!topic) {
+    sub.innerHTML = '<p class="warn">No topic given. Open this page from the monitor: click <b>Phones</b> in its top bar, then <b>Phone setup QR codes</b>.</p>';
+  } else {
+    const deep = 'ntfy://ntfy.sh/' + topic + '?display=' + encodeURIComponent('Judge Monitor');
+    sub.innerHTML = `<p>The topic is:<br><span class="topic">${esc(topic)}</span></p>
+      <div class="row">
+        <div class="card"><h3>iPhone</h3><ol>
+          <li>Open <b>ntfy</b> and tap <b>+</b> (top right).</li>
+          <li>Type the topic above exactly (lowercase).</li>
+          <li>Leave "Use another server" off and tap <b>Subscribe</b>.</li></ol></div>
+        <div class="card"><h3>Android</h3><div id="qr-sub"></div><p class="note">Scan with the camera after installing ntfy, then tap <b>Subscribe</b>. Or open ntfy, tap <b>+</b> and type the topic.</p></div>
+      </div>
+      <p class="note">Anyone who knows the topic can read these alerts, so share it only with the judging crew. Messages give the judge position, bib and category, never athlete names.
+      To silence alerts after the comp, unsubscribe in ntfy or mute the topic.</p>`;
+    qr('qr-sub', deep);
+  }
+</script>
