@@ -5,8 +5,9 @@
   // stop any monitor already running in this tab (it may be watching another round/event).
   { const oldStop = document.querySelector('#usac-mon #um-stop'); if (oldStop) oldStop.click(); delete window.__usacMon; }
   const CFG = { pollSec: 15, staleMin: 8, dupWindowMin: 5, inactiveMin: 10 };
-  // Where this script was loaded from (GitHub Pages), for linking to phones.html.
-  const BASE = (document.currentScript && document.currentScript.src) ? new URL('.', document.currentScript.src).href : 'https://chsnow.github.io/usac-judge-monitor/';
+  // Pages only serves .html as a page from GitHub Pages (a CDN copy used for testing serves it
+  // as plain text), so always link there.
+  const BASE = 'https://chsnow.github.io/usac-judge-monitor/';
 
   // ---------- phone alerts via ntfy.sh (settings kept per laptop, for all rounds) ----------
   // Off by default, so only the laptop that turns it on sends (two senders = duplicate pings).
