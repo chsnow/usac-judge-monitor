@@ -130,7 +130,13 @@ prior-change alerts, dismissals and which alerts were sent to phones, so reloads
   watching. Build it into the monitor instead.
 - The JS tool's output gets blocked if it contains query-string-looking text (`?`, `=`, `&`).
   Strip those characters from output.
-- Chrome slows timers in background tabs; the monitor shows a "Refreshes were delayed" banner.
+- Chrome slows timers on hidden pages (background tab, screen locked) to about once a minute
+  after 5 minutes. Polling is driven by a Web Worker (`pollWorker`, from a Blob URL), whose
+  timers aren't throttled that way. The "Refreshes were delayed" banner still shows if a gap
+  over 45 s happens anyway (e.g. the Mac slept).
+- Locked-screen use on a Mac: plug in power and stop the Mac sleeping when the display is off
+  (Battery > Options > Prevent automatic sleeping on power adapter when the display is off,
+  or run `caffeinate -dis` in Terminal). Closing the lid sleeps the Mac regardless.
 - Don't enter or change scores in the site while testing unless the user explicitly asks.
 - User preference: whenever you mention a bib, include the category, e.g. `bib 1983 (M/O-19+)`.
 

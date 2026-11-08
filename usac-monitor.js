@@ -78,7 +78,7 @@
   const saveState = () => {
     try { localStorage.setItem(storeKey, JSON.stringify({ v: 1, savedAt: Date.now(), confirmedRes, priorChanges, acked, notified })); } catch (e) {}
   };
-  let lastPoll = null, lastErr = null, firstPoll = true, timer = null, slowSince = 0;
+  let lastPoll = null, lastErr = null, firstPoll = true, timer = null, pollWorker = null, slowSince = 0;
 
   // Compact climb label: "M/O-15" + boulder 1 -> "M15-1", "F-19+" + boulder 5 -> "F19-5".
   const shortCat = cat => String(cat).replace(/^([A-Za-z])[^-]*-/, '$1').replace(/\+$/, '');
@@ -342,7 +342,7 @@
   $('#um-inactive').value = CFG.inactiveMin; $('#um-inactive').onchange = e => { CFG.inactiveMin = Math.max(1, +e.target.value || 10); poll(); };
   $('#um-stale').value = CFG.staleMin; $('#um-stale').onchange = e => { CFG.staleMin = Math.max(1, +e.target.value || 8); poll(); };
   $('#um-hide').onclick = () => { host.style.display = 'none'; };
-  $('#um-stop').onclick = () => { clearInterval(timer); host.remove(); delete window.__usacMon; document.title = baseTitle; };
+  $('#um-stop').onclick = () => { clearInterval(timer); if (pollWorker) pollWorker.terminate(); host.remove(); delete window.__usacMon; document.title = baseTitle; };
   const baseTitle = document.title;
   let beeped = {};
   function beep() {
@@ -495,5 +495,12 @@
 
   window.__usacMon = { show: () => { host.style.display = ''; }, stop: () => $('#um-stop').click() };
   await poll();
-  timer = setInterval(poll, CFG.pollSec * 1000);
+  // Chrome throttles timers on hidden pages (screen locked, tab behind another) to about once a
+  // minute after 5 minutes. Timers inside a worker aren't throttled that way, so a worker drives
+  // the refreshes; plain setInterval is the fallback.
+  try {
+    const src = URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${CFG.pollSec * 1000});`], { type: 'text/javascript' }));
+    pollWorker = new Worker(src); pollWorker.onmessage = () => poll();
+  } catch (e) { pollWorker = null; }
+  if (!pollWorker) timer = setInterval(poll, CFG.pollSec * 1000);
 })();
