@@ -5,6 +5,18 @@
   // stop any monitor already running in this tab (it may be watching another round/event).
   { const oldStop = document.querySelector('#usac-mon #um-stop'); if (oldStop) oldStop.click(); delete window.__usacMon; }
   const CFG = { pollSec: 15, staleMin: 8, dupWindowMin: 5, inactiveMin: 10 };
+  // Where this script was loaded from (GitHub Pages), for linking to phones.html.
+  const BASE = (document.currentScript && document.currentScript.src) ? new URL('.', document.currentScript.src).href : 'https://chsnow.github.io/usac-judge-monitor/';
+
+  // ---------- phone alerts via ntfy.sh (settings kept per laptop, for all rounds) ----------
+  // Off by default, so only the laptop that turns it on sends (two senders = duplicate pings).
+  const PH_KEY = 'usacJudgeMonitor:phones';
+  const newTopic = () => { const abc = 'abcdefghjkmnpqrstuvwxyz23456789'; return 'usacjm-' + [...crypto.getRandomValues(new Uint8Array(8))].map(x => abc[x % abc.length]).join(''); };
+  const PH = { on: false, topic: '', done: false };
+  try { Object.assign(PH, JSON.parse(localStorage.getItem(PH_KEY) || '{}')); } catch (e) {}
+  if (!PH.topic) PH.topic = newTopic();
+  const savePH = () => { try { localStorage.setItem(PH_KEY, JSON.stringify(PH)); } catch (e) {} };
+  savePH();
 
   // ---------- find the app's Vue router + Apollo client ----------
   let root = null;
@@ -49,6 +61,7 @@
   const events = [];        // {t, jp, pid, aid}
   const acked = {};         // alertKey -> true
   const firstShown = {};    // alertKey -> when the monitor first showed it
+  const notified = {};      // alertKey -> when it was sent to phones
   // Persist the confirmed-result cache, open prior-change alerts and dismissals per round,
   // so a page reload (or Chrome discarding the tab) doesn't lose what we've already seen.
   const storeKey = 'usacJudgeMonitor:round:' + roundId;
@@ -58,10 +71,11 @@
       Object.assign(confirmedRes, saved.confirmedRes || {});
       Object.assign(priorChanges, saved.priorChanges || {});
       Object.assign(acked, saved.acked || {});
+      Object.assign(notified, saved.notified || {});
     }
   } catch (e) {}
   const saveState = () => {
-    try { localStorage.setItem(storeKey, JSON.stringify({ v: 1, savedAt: Date.now(), confirmedRes, priorChanges, acked })); } catch (e) {}
+    try { localStorage.setItem(storeKey, JSON.stringify({ v: 1, savedAt: Date.now(), confirmedRes, priorChanges, acked, notified })); } catch (e) {}
   };
   let lastPoll = null, lastErr = null, firstPoll = true, timer = null, slowSince = 0;
 
@@ -217,7 +231,7 @@
       const { a, was, now: cur, at } = priorChanges[key];
       const diffs = priorDiffs(was, cur);   // re-check: drops low-zone-only findings in rounds without low zones
       if (!diffs.length) continue;
-      alerts.push({ key, t: at, sev: 'high', jp: a.jp,
+      alerts.push({ key, t: at, sev: 'high', jp: a.jp, nm: a.name,
         title: `ERROR: Prior score changed: ${a.jp}, ${B(a.crId, a.bib)} (${L(a.crId, a.cat)})`,
         detail: `${a.name}, boulder ${a.boulder}. Was (confirmed): ${fmtRes(was)}. Now (${a.s === 'active' ? 'pending' : a.s}): ${fmtRes(cur)}. ${diffs.join('; ')}. Spotted ${fmtAgo(now - at)} ago.` });
     }
@@ -230,7 +244,7 @@
       const later = (byPid[a.pid] || []).filter(o => o.id !== a.id && o.s !== 'pending' && o.u > a.u + 30e3).sort((x, y) => y.u - x.u);
       const movedOn = later.length > 0;
       if (movedOn || age > CFG.staleMin * 60e3) {
-        alerts.push({ key: 'unc-' + a.id + '-' + a.u, t: movedOn ? later[0].u : a.u + CFG.staleMin * 60e3, sev: movedOn ? 'high' : 'med', jp: a.jp,
+        alerts.push({ key: 'unc-' + a.id + '-' + a.u, t: movedOn ? later[0].u : a.u + CFG.staleMin * 60e3, sev: movedOn ? 'high' : 'med', jp: a.jp, nm: a.name,
           title: `Not confirmed: ${a.jp}, ${B(a.crId, a.bib)} (${L(a.crId, a.cat)})`,
           detail: `${a.name}, boulder ${a.boulder}: ${score(a)}. Last change ${fmtAgo(age)} ago` + (movedOn ? `. Athlete has since been scored on ${later[0].jp} (${L(later[0].crId, shortCat(later[0].cat) + '-' + later[0].boulder)}), ${fmtAgo(now - later[0].u)} ago` + (later.length > 1 ? ` and ${later.length - 1} other boulder${later.length > 2 ? 's' : ''}.` : '.') : '.') });
       }
@@ -302,12 +316,25 @@
   #usac-mon tr td.idle{background:#fff1d6;color:#8a5300;font-weight:700;box-shadow:inset 3px 0 0 #e8a10c}
   #usac-mon a.cat{color:inherit;text-decoration:none;cursor:pointer} #usac-mon a.cat:hover{color:#2f6fde}
   #usac-mon .err{background:#fde8e8;color:#8a1c1c;padding:6px 10px;border-radius:5px;margin-bottom:6px}
+  #usac-mon header button.on{background:#3bb36b;color:#fff} #usac-mon header button.bad{background:#d62d2d;color:#fff}
+  #usac-mon .php{background:#fff;border-bottom:1px solid #dfe3e9;padding:8px 12px;display:flex;flex-direction:column;gap:6px;font-size:12px}
+  #usac-mon .php[hidden]{display:none} #usac-mon .php input[type=text]{font:13px ui-monospace,Menlo,monospace;width:180px;padding:1px 4px}
+  #usac-mon .php button{border:1px solid #ccd;background:#fff;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:12px} #usac-mon .php .n{color:#5b6475}
   </style>
   <header><b>Judge Monitor</b><span id="um-round"></span><span class="sp"></span>
    <label>Unconfirmed after <input id="um-stale" type="number" min="1"> min</label>
    <label>Inactive position after <input id="um-inactive" type="number" min="1"> min</label>
    <label><input id="um-sound" type="checkbox" checked> Sound</label>
-   <span id="um-status"></span><button id="um-hide">Hide</button><button id="um-stop">Stop</button></header>
+   <span id="um-status"></span><button id="um-ph">Phones</button><button id="um-hide">Hide</button><button id="um-stop">Stop</button></header>
+  <div class="php" id="um-phpanel" hidden>
+   <label><input id="um-ph-on" type="checkbox"> <b>Send alerts from this laptop to phones</b> (turn this on for one laptop only, or phones get every alert twice)</label>
+   <div>ntfy topic: <input id="um-ph-topic" type="text" spellcheck="false"> <button id="um-ph-new">New topic</button>
+    <span class="n">Phones subscribe to this name in the ntfy app. A backup laptop can use the same topic.</span></div>
+   <label><input id="um-ph-done" type="checkbox"> Also send "JP finished" (so volunteers can be released)</label>
+   <div><button id="um-ph-qr">Phone setup QR codes</button> <button id="um-ph-test">Send test</button> <span id="um-ph-st"></span></div>
+   <div class="n">Red and yellow alerts are sent once each (more than 3 at once arrive as one summary). Messages give the judge position, bib and category, never athlete names.
+    Anyone who knows the topic can read the alerts, so share it only with the judging crew.</div>
+  </div>
   <main><section><h2>Judge positions</h2><div id="um-jps"></div></section><section><h2>Alerts</h2><div id="um-alerts"></div></section></main>`;
   document.body.appendChild(host);
   const $ = s => host.querySelector(s);
@@ -327,6 +354,75 @@
   const catA = (id, text) => `<a class="cat" href="${catUrl(id)}" target="_blank" rel="noopener">${esc(text)}</a>`;
   const linkify = s => esc(s).replace(/\u0001(\d+)\u0002([^\u0003]*)\u0003/g, (m, id, t) => `<a class="cat" href="${catUrl(id)}" target="_blank" rel="noopener">${t}</a>`)
     .replace(/\u0004(\d+)\u0005([^\u0006]*)\u0006/g, (m, id, b) => `<a class="cat bib" href="${catUrl(id)}" target="_blank" data-bib="${b}">bib ${b}</a>`);
+
+  // ---------- phone alerts (ntfy.sh) ----------
+  // Posts go straight from this tab to ntfy.sh (the site has no CSP). A plain-text body
+  // holding JSON, posted to the root URL, avoids a CORS preflight.
+  let phStatus = '', phBad = false;
+  const plain = s => String(s).replace(/\u0001\d+\u0002([^\u0003]*)\u0003/g, '$1').replace(/\u0004\d+\u0005([^\u0006]*)\u0006/g, 'bib $1');
+  const firstCr = s => (String(s).match(/[\u0001\u0004](\d+)[\u0002\u0005]/) || [])[1];
+  const PH_SEV = { high: { p: 5, tag: 'rotating_light' }, med: { p: 4, tag: 'warning' }, done: { p: 3, tag: 'white_check_mark' } };
+  function phoneMsg(a) {
+    // Lead with the judge position, which is where someone on the floor will walk to.
+    let title = plain(a.title);
+    if (a.jp && a.jp !== '?') title = a.jp + ' · ' + title.replace(a.jp + ', ', '').replace(': ' + a.jp, '');
+    let message = plain(a.detail);
+    if (a.nm) message = message.split(a.nm + ', ').join('');   // no athlete names on phones
+    message = message.charAt(0).toUpperCase() + message.slice(1);
+    const cr = firstCr(a.title) || firstCr(a.detail);
+    const m = { title, message, priority: PH_SEV[a.sev].p, tags: [PH_SEV[a.sev].tag] };
+    if (cr) m.click = location.origin + catUrl(cr);
+    return m;
+  }
+  async function ntfy(m) {
+    const r = await fetch('https://ntfy.sh/', { method: 'POST', body: JSON.stringify(Object.assign({ topic: PH.topic }, m)) });
+    if (!r.ok) throw new Error('ntfy HTTP ' + r.status);
+  }
+  function phUpdate() {
+    const b = $('#um-ph');
+    b.textContent = 'Phones: ' + (PH.on ? 'on' : 'off');
+    b.className = PH.on ? (phBad ? 'bad' : 'on') : '';
+    b.title = phStatus;
+    $('#um-ph-st').textContent = phStatus;
+  }
+  function phSend(msgs, keys) {
+    return Promise.all(msgs.map(ntfy)).then(() => { phBad = false; phStatus = 'Last sent ' + new Date().toLocaleTimeString(); phUpdate(); })
+      .catch(e => {   // retry on the next refresh
+        (keys || []).forEach(k => delete notified[k]); saveState();
+        phBad = true; phStatus = 'Send failed (' + (e.message || e) + '), retrying'; phUpdate();
+      });
+  }
+  function notifyPhones(alerts) {
+    if (!PH.on || !PH.topic) return;
+    const want = alerts.filter(a => (a.sev === 'high' || a.sev === 'med' || (a.sev === 'done' && PH.done)) && !notified[a.key]);
+    if (!want.length) return;
+    const now = Date.now(); want.forEach(a => notified[a.key] = now); saveState();
+    let msgs = want.map(phoneMsg);
+    if (msgs.length > 3) {
+      const top = want.some(a => a.sev === 'high') ? 'high' : want.some(a => a.sev === 'med') ? 'med' : 'done';
+      msgs = [{ title: `${msgs.length} new Judge Monitor alerts`, message: msgs.map(m => '• ' + m.title).join('\n').slice(0, 3500),
+        priority: PH_SEV[top].p, tags: [PH_SEV[top].tag] }];
+    }
+    phSend(msgs, want.map(a => a.key));
+  }
+  const phPanel = $('#um-phpanel');
+  $('#um-ph').onclick = () => { phPanel.hidden = !phPanel.hidden; };
+  $('#um-ph-on').checked = PH.on; $('#um-ph-done').checked = PH.done; $('#um-ph-topic').value = PH.topic;
+  $('#um-ph-on').onchange = e => { PH.on = e.target.checked; phBad = false; phStatus = ''; savePH(); phUpdate(); if (PH.on) render(null, Date.now()); };
+  $('#um-ph-done').onchange = e => { PH.done = e.target.checked; savePH(); };
+  $('#um-ph-topic').onchange = e => {
+    const t = e.target.value.trim().replace(/[^A-Za-z0-9_-]/g, '');
+    if (t.length >= 6) PH.topic = t;
+    e.target.value = PH.topic; savePH();
+  };
+  $('#um-ph-new').onclick = () => {
+    if (!confirm('Make a new topic? Phones subscribed to the old one will stop getting alerts until they subscribe to the new one.')) return;
+    PH.topic = newTopic(); $('#um-ph-topic').value = PH.topic; savePH();
+  };
+  $('#um-ph-qr').onclick = () => window.open(BASE + 'phones.html#' + encodeURIComponent(PH.topic), '_blank', 'noopener');
+  $('#um-ph-test').onclick = () => { phStatus = 'Sending test…'; phUpdate();
+    phSend([{ title: 'Judge Monitor test', message: `Phone alerts are working for topic ${PH.topic}.`, priority: 3, tags: ['white_check_mark'] }]); };
+  phUpdate();
 
   let lastAsc = null;
   function render(asc, now) {
@@ -372,6 +468,7 @@
     const hi = alerts.filter(a => a.sev === 'high' || a.sev === 'med');
     document.title = hi.length ? `(${hi.length}) ⚠ Judge Monitor` : baseTitle;
     const fresh = hi.filter(a => !beeped[a.key]); if (fresh.length) { beep(); fresh.forEach(a => beeped[a.key] = true); }
+    notifyPhones(alerts);
   }
 
   // Bib links: open the category's results page in a new tab and search for that bib.
