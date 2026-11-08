@@ -136,7 +136,7 @@ prior-change alerts, dismissals and which alerts were sent to phones, so reloads
   over 45 s happens anyway (e.g. the Mac slept).
 - Locked-screen use on a Mac: plug in power and stop the Mac sleeping when the display is off
   (Battery > Options > Prevent automatic sleeping on power adapter when the display is off,
-  or run `caffeinate -dis` in Terminal). Closing the lid sleeps the Mac regardless.
+  or run `caffeinate -is` in Terminal). Closing the lid sleeps the Mac regardless.
 - Don't enter or change scores in the site while testing unless the user explicitly asks.
 - User preference: whenever you mention a bib, include the category, e.g. `bib 1983 (M/O-19+)`.
 
