@@ -44,6 +44,8 @@
   let round = null, routeToJP = {}, jpNames = [], crs = [];
   let catInfo = {};   // category-round id -> { total registered, dns }
   const seen = {};          // ascentId -> {u, s}
+  const confirmedRes = {};  // ascentId -> last result seen while confirmed/locked
+  const priorChanges = {};  // latched "prior score changed" findings, key -> {a, was, now, diffs, at}
   const events = [];        // {t, jp, pid, aid}
   const acked = {};         // alertKey -> true
   let lastPoll = null, lastErr = null, firstPoll = true, timer = null, slowSince = 0;
@@ -90,6 +92,17 @@
             events.push({ t: firstPoll ? a.u : now, su: a.u, live: !firstPoll, scored: !!prev && prev.sig !== sig, jp: a.jp, pid: a.pid, aid: a.id });
         }
         seen[a.id] = { u: a.u, s: a.s, sig };
+        // Prior-attempt edits: compare with the last confirmed result for this record.
+        const cur = { top: !!a.top, tt: a.tt || 0, zone: !!a.zone, zt: a.zt || 0, low: !!a.low, lt: a.lt || 0 };
+        const was = confirmedRes[a.id];
+        if (was) {
+          const diffs = priorDiffs(was, cur);
+          if (diffs.length) {
+            const key = 'chg-' + a.id + '-' + was.sig;
+            priorChanges[key] = Object.assign(priorChanges[key] || { at: now }, { a, was, now: cur, diffs });
+          }
+        }
+        if (a.s === 'confirmed' || a.s === 'locked') confirmedRes[a.id] = Object.assign({ sig }, cur);
       }
       while (events.length && now - events[0].t > 60 * 60e3) events.shift();
       if (lastPoll && now - lastPoll > 45e3) slowSince = now;
@@ -139,6 +152,24 @@
     k.ok = k.total === k.notStarted + k.remaining + k.done + k.dns;
     return k;
   }
+  // What changed between a confirmed result and the current one that a new attempt can't explain.
+  // A new attempt only increases the attempt count and can only add a top/zone/low zone on that
+  // new attempt; anything else means an earlier attempt was edited.
+  const MILESTONES = [['top', 'tt', 'Top'], ['zone', 'zt', 'Zone'], ['low', 'lt', 'Low zone']];
+  function priorDiffs(was, cur) {
+    const d = [];
+    for (const [m, t, name] of MILESTONES) {
+      if (was[m] && !cur[m]) d.push(`${name} on attempt ${was[t]} was removed`);
+      else if (was[m] && cur[m] && was[t] !== cur[t]) d.push(`${name} moved from attempt ${was[t]} to attempt ${cur[t]}`);
+      else if (!was[m] && cur[m] && !was.top && cur[t] <= was.tt) d.push(`${name} added on earlier attempt ${cur[t]}`);
+    }
+    if (cur.tt < was.tt && !(cur.top && !was.top)) d.push(`attempts went down from ${was.tt} to ${cur.tt}`);
+    return d;
+  }
+  function fmtRes(x) {
+    const r = [x.top ? `Top on ${x.tt}` : null, x.zone ? `Zone on ${x.zt}` : null, x.low ? `Low zone on ${x.lt}` : null].filter(Boolean);
+    return `${x.tt} attempt${x.tt === 1 ? '' : 's'}, ` + (r.length ? r.join(', ') : 'nothing scored');
+  }
   function fmtAgo(ms) {
     const m = Math.floor(ms / 60e3);
     if (m < 1) return '<1 min';
@@ -150,6 +181,13 @@
 
   function computeAlerts(asc, now) {
     const alerts = [];
+    // Prior score changed (latched until dismissed, even if it is put back).
+    for (const key in priorChanges) {
+      const { a, was, now: cur, diffs, at } = priorChanges[key];
+      alerts.push({ key, sev: 'high', jp: a.jp,
+        title: `Prior score changed: ${a.jp}, ${B(a.crId, a.bib)} (${L(a.crId, a.cat)})`,
+        detail: `${a.name}, boulder ${a.boulder}. Was (confirmed): ${fmtRes(was)}. Now (${a.s === 'active' ? 'pending' : a.s}): ${fmtRes(cur)}. ${diffs.join('; ')}. Spotted ${fmtAgo(now - at)} ago.` });
+    }
     const byPid = {}; asc.forEach(a => (byPid[a.pid] = byPid[a.pid] || []).push(a));
     // (2) Unconfirmed scores
     for (const a of asc) {
