@@ -48,6 +48,20 @@
   const priorChanges = {};  // latched "prior score changed" findings, key -> {a, was, now, diffs, at}
   const events = [];        // {t, jp, pid, aid}
   const acked = {};         // alertKey -> true
+  // Persist the confirmed-result cache, open prior-change alerts and dismissals per round,
+  // so a page reload (or Chrome discarding the tab) doesn't lose what we've already seen.
+  const storeKey = 'usacJudgeMonitor:round:' + roundId;
+  try {
+    const saved = JSON.parse(localStorage.getItem(storeKey) || 'null');
+    if (saved && saved.v === 1) {
+      Object.assign(confirmedRes, saved.confirmedRes || {});
+      Object.assign(priorChanges, saved.priorChanges || {});
+      Object.assign(acked, saved.acked || {});
+    }
+  } catch (e) {}
+  const saveState = () => {
+    try { localStorage.setItem(storeKey, JSON.stringify({ v: 1, savedAt: Date.now(), confirmedRes, priorChanges, acked })); } catch (e) {}
+  };
   let lastPoll = null, lastErr = null, firstPoll = true, timer = null, slowSince = 0;
 
   // Compact climb label: "M/O-15" + boulder 1 -> "M15-1", "F-19+" + boulder 5 -> "F19-5".
@@ -107,6 +121,7 @@
       while (events.length && now - events[0].t > 60 * 60e3) events.shift();
       if (lastPoll && now - lastPoll > 45e3) slowSince = now;
       firstPoll = false; lastPoll = now; lastErr = null;
+      saveState();
       render(asc, now);
     } catch (e) { lastErr = e.message || String(e); render(null, Date.now()); }
   }
@@ -307,7 +322,7 @@
     html += alerts.length ? alerts.map(a => `<div class="al ${a.sev}"><div><div class="t">${linkify(a.title)}</div><div class="d">${linkify(a.detail)}</div></div><button data-k="${esc(a.key)}">Dismiss</button></div>`).join('')
       : '<div class="ok">All clear. No unconfirmed scores or inactive positions.</div>';
     $('#um-alerts').innerHTML = html;
-    host.querySelectorAll('#um-alerts button[data-k]').forEach(b => b.onclick = () => { acked[b.dataset.k] = true; render(null, Date.now()); });
+    host.querySelectorAll('#um-alerts button[data-k]').forEach(b => b.onclick = () => { acked[b.dataset.k] = true; saveState(); render(null, Date.now()); });
     // One row per position, then a sub-row per live category + boulder judged there.
     const stats = (list, k, flagIdle) => {
       const last = Math.max(0, ...list.filter(a => a.s !== 'pending').map(a => a.u));
