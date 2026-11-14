@@ -29,9 +29,14 @@ Everything so far was built and tested on **boulder, jam format** rounds only.
   a route with `$router.match(path)`, loading its lazy components and scanning their
   `apollo` options for a query whose source matches a regex.
 - Queries in use:
-  - `AdminCaRoundQuery` (category round; `round.settings`, `round.id`), from the results page
-  - `AdminCatRoundRankingQuery` (`ranking_items`: one per registered climber, each with
-    `ascents[]`), from the results page. This is the main data source.
+  - `AdminCaRoundQuery` (category round; `round.settings`, `round.id`, `participants`), from the results page
+  - `AdminCatRoundRankingQuery` (`ranking_items`, each with `ascents[]`), from the results
+    page. This is the main data source. **It only lists climbers who have started at least one
+    boulder** (Nov 14, 2026: M/O-17 had 29 registered, 18 in the ranking). The registration
+    list is `AdminCaRoundQuery`'s `participants` (+ `participant_irms`); `loadRegistrations`
+    reads it (cached 60 s) and adds climbers missing from the ranking as `ghost` pending records
+    on every climb in their category, so Total / Not started / Everyone topped / JP finished
+    are right.
   - `RoundQuery` (category rounds, routes, `judge_positions[].judge_position_routes[]` for the
     route-to-JP map, `max_tries`), from `/admin/events/1/round_setup/1/jam_format/1`
   - `RoundSetupDisciplineQuery` has `rounds{settings}` and route `difficulties` (empty in
