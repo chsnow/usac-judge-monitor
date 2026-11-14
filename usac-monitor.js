@@ -109,20 +109,56 @@
     crs = round.category_rounds.map(c => ({ id: c.id, cat: c.category ? c.category.name : c.name, state: c.aasm_state, maxTries: c.max_tries || round.max_tries || null, routes: Object.fromEntries((c.routes || []).map(rt => [String(rt.id), rt.name])) }));
   }
 
+  // Registration list per category round. The ranking only lists climbers who have started at
+  // least one boulder (found Nov 14, 2026: M/O-17 had 29 registered, 18 in the ranking), so the
+  // rest come from AdminCaRoundQuery's participants. Refreshed at most once a minute.
+  const regCache = {};   // crId -> { at, list: [{ pid, aid, bib, name, dns }] }
+  async function loadRegistrations(c) {
+    const hit = regCache[c.id];
+    if (hit && Date.now() - hit.at < 60e3) return hit.list;
+    try {
+      const cr = (await client.query({ query: crDoc, variables: { id: Number(c.id) }, fetchPolicy: 'network-only' })).data.category_round;
+      const irm = cr.participant_irms || [];
+      const isDns = p => irm.some(x => /DNS/i.test(String(x.irm_type || '')) && (String(x.participant_id) === String(p.id) || (x.athlete_id && String(x.athlete_id) === String(p.athlete_id))));
+      const list = (cr.participants || []).map(p => ({ pid: p.id, aid: p.athlete_id, bib: p.bib_number,
+        name: [p.firstname, p.lastname].filter(Boolean).join(' ') || (p.athlete ? [p.athlete.firstname, p.athlete.lastname].join(' ') : ''),
+        dns: isDns(p) || !!p.not_attending }));
+      regCache[c.id] = { at: Date.now(), list };
+      return list;
+    } catch (e) { return hit ? hit.list : null; }   // fall back to ranking-only counts
+  }
+
   async function poll() {
     try {
       await loadRound();
       await loadLowZoneSetting();
       const live = crs.filter(c => isLive(c.state));
-      const results = await Promise.all(live.map(c => client.query({ query: rankDoc, variables: { id: c.id }, fetchPolicy: 'network-only' }).then(r => ({ c, r }))));
+      const results = await Promise.all(live.map(c => Promise.all([
+        client.query({ query: rankDoc, variables: { id: c.id }, fetchPolicy: 'network-only' }),
+        loadRegistrations(c)]).then(([r, reg]) => ({ c, r, reg }))));
       const asc = [];
-      for (const { c, r } of results) {
+      for (const { c, r, reg } of results) {
         let items = r.data.category_round.ranking_items; if (typeof items === 'string') items = JSON.parse(items);
-        catInfo[c.id] = { total: (items || []).length, dns: (items || []).filter(p => /\bDNS\b/.test(String(p.score || ''))).length };
-        for (const p of items || []) for (const a of p.ascents || []) {
+        items = items || [];
+        let dns = items.filter(p => /\bDNS\b/.test(String(p.score || ''))).length;
+        for (const p of items) for (const a of p.ascents || []) {
           asc.push({ id: a.id, dns: /\bDNS\b/.test(String(p.score || '')), out: /\bDNS\b/.test(String(p.score || '')), dsq: /\bDSQ\b/.test(String(p.score || '')), maxTries: c.maxTries, crId: c.id, rid: String(a.route_id), pid: a.participant_id, bib: p.bib_number, name: p.name, cat: c.cat, boulder: c.routes[String(a.route_id)] || '?',
             jp: routeToJP[String(a.route_id)] || '?', s: a.aasm_state, u: new Date(a.updated_at).getTime(), top: a.top, zone: a.zone, low: a.low_zone, tt: a.top_tries, zt: a.zone_tries, lt: a.low_zone_tries });
         }
+        // Registered climbers missing from the ranking haven't started anywhere: count them as
+        // not started on every climb in the category (or DNS if the site marks them so).
+        let total = items.length;
+        if (reg) {
+          const inRank = new Set(items.map(p => 'a' + p.athlete_id).concat(items.map(p => 'b' + p.bib_number)));
+          for (const p of reg) {
+            if (inRank.has('a' + p.aid) || inRank.has('b' + p.bib)) continue;
+            total++; if (p.dns) { dns++; continue; }
+            for (const rid in c.routes) asc.push({ id: 'unstarted-' + c.id + '-' + p.pid + '-' + rid, ghost: true, dns: false, out: false, dsq: false, maxTries: c.maxTries,
+              crId: c.id, rid, pid: p.pid, bib: p.bib, name: p.name, cat: c.cat, boulder: c.routes[rid], jp: routeToJP[rid] || '?', s: 'pending', u: 0,
+              top: false, zone: false, low: false, tt: 0, zt: 0, lt: 0 });
+          }
+        }
+        catInfo[c.id] = { total, dns };
       }
       const now = Date.now();
       for (const a of asc) {
