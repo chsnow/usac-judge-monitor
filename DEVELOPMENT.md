@@ -87,7 +87,10 @@ end of this file).
 
 Total | Not started | Remaining | Done | DNS ‖ Pending | Confirmed | Last activity, per judge
 position with a sub-row per live climb (label like `M15-1`, plus dropped from `19+`).
-- Done = topped, locked, DSQ or out of attempts. Not started = not done and never opened.
+- Done = topped, locked, DSQ or out of attempts, or the competitor has **any** locked score in
+  that category (we lock a competitor when they turn in their scorecard, so they're done on every
+  climb). Not started = not done and never opened. Locked competitors' pending climbs don't count
+  as work left for "Inactive judge position" or the idle highlight.
   Remaining = not done, started, attempts left. DNS climbers are excluded from the three.
 - Pending = unconfirmed (`active`) records; amber when > 1. Last activity amber when a climb
   with climbers left has been idle longer than the inactive limit. Fully topped climbs greyed.
@@ -172,7 +175,8 @@ discipline `{name: "lead", kind: 0}` and format `lead_usac_modified_redpoint`.
 
 Monitor behaviour in lead:
 - Counts are per climber per route (`leadUnits`): Done = topped, DSQ, all `max_tries`
-  attempts used (non-pending), or every attempt locked; Not started = no attempt opened;
+  attempts used (non-pending), or the competitor has any locked score (scorecard turned in);
+  Not started = no attempt opened;
   Remaining = the rest. Pending / Confirmed columns still count attempt records.
 - Prior score changed: `leadDiffs` compares Top / hold number / plus of each confirmed attempt
   (`leadRes`). A confirmed blank (NaN) later filled in is not an error (the NaN warning covers it).

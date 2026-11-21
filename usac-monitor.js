@@ -172,6 +172,12 @@
         }
         catInfo[c.id] = { total, dns };
       }
+      // A competitor with any locked score has turned in their scorecard: they're done on every
+      // climb in that category (lead and boulder), even where attempts are still pending.
+      {
+        const lockedComp = new Set(asc.filter(a => a.s === 'locked').map(a => a.crId + ':' + a.pid));
+        for (const a of asc) a.compLocked = lockedComp.has(a.crId + ':' + a.pid);
+      }
       const now = Date.now();
       for (const a of asc) {
         const prev = seen[a.id];
@@ -239,7 +245,7 @@
   //   Done:        topped, locked, DSQ, or out of attempts (top_tries = attempts used)
   //   Not started: not done and never opened on this climb
   //   Remaining:   not done, already started, can still make attempts
-  const isDone = a => a.top || a.s === 'locked' || a.dsq || (a.maxTries && (a.tt || 0) >= a.maxTries);
+  const isDone = a => a.top || a.s === 'locked' || a.compLocked || a.dsq || (a.maxTries && (a.tt || 0) >= a.maxTries);
   function climbCounts(asc, crId, rid) {
     const ppl = asc.filter(a => a.crId === crId && a.rid === rid && !a.out);
     const k = { total: (catInfo[crId] || {}).total || 0, dns: (catInfo[crId] || {}).dns || 0 };
@@ -263,7 +269,7 @@
     const by = {}; for (const a of list) (by[a.pid] = by[a.pid] || []).push(a);
     return Object.values(by).map(atts => {
       const used = atts.filter(a => a.s !== 'pending').length, max = atts[0].maxTries || atts.length;
-      const done = atts.some(a => a.top || a.dsq) || used >= max || (!atts[0].ghost && atts.every(a => a.s === 'locked'));
+      const done = atts.some(a => a.top || a.dsq) || used >= max || atts.some(a => a.compLocked);
       return { pid: atts[0].pid, atts, used, max, started: used > 0, done };
     });
   }
@@ -350,7 +356,7 @@
     const underway = jpNames.some(jp => now - lastAt(jp) < lim);
     if (underway) for (const jp of jpNames) {
       const mine = asc.filter(a => a.jp === jp);
-      const workLeft = mine.some(a => a.s === 'pending' || a.s === 'active');
+      const workLeft = mine.some(a => (a.s === 'pending' || a.s === 'active') && !a.compLocked);
       const last = lastAt(jp);
       if (workLeft && now - last >= lim) alerts.push({ key: 'inactive-' + jp + '-' + last, t: last ? last + lim : null, sev: 'med', jp,
         title: `Inactive judge position: ${jp}`,
@@ -542,7 +548,7 @@
       const last = Math.max(0, ...list.filter(a => a.s !== 'pending').map(a => a.u));
       const pend = list.filter(a => a.s === 'active').length; // highlighted when more than 1
       // Flag a climb that still has climbers to judge but no activity within the inactive limit.
-      const idle = flagIdle && list.some(a => a.s === 'pending' || a.s === 'active') && (!last || now - last >= CFG.inactiveMin * 60e3);
+      const idle = flagIdle && list.some(a => (a.s === 'pending' || a.s === 'active') && !a.compLocked) && (!last || now - last >= CFG.inactiveMin * 60e3);
       return `<td${k.ok ? '' : ' data-hl'}>${k.total}</td><td>${k.notStarted}</td><td>${k.remaining}</td><td>${k.done}</td><td>${k.dns}</td>` +
         `<td class="split"${pend > 1 ? ' data-hl' : ''}>${pend}</td><td>${list.filter(a => a.s === 'confirmed').length}</td>` +
         `<td${idle ? ' class="idle"' : ''}>${last ? fmtAgo(now - last) : 'n/a'}</td>`;
