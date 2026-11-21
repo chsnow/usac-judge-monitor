@@ -2,7 +2,8 @@
 
 Notes for whoever (human or Claude) works on this next. Written after the first build at the
 Mesa Rim Reno boulder QE (Nov 7, 2026) and testing on the R21 Practice Event (Nov 8, 2026).
-Everything so far was built and tested on **boulder, jam format** rounds only.
+Built on **boulder, jam format** rounds; lead / top rope support added Nov 21, 2026 (see the
+end of this file).
 
 ## What it is and how it ships
 
@@ -145,18 +146,38 @@ prior-change alerts, dismissals and which alerts were sent to phones, so reloads
 - Don't enter or change scores in the site while testing unless the user explicitly asks.
 - User preference: whenever you mention a bib, include the category, e.g. `bib 1983 (M/O-19+)`.
 
-## Lead / top rope: what will probably need changing
+## Lead / top rope (added Nov 21, 2026)
 
-Not built or tested yet. Things to check first on a lead/TR event:
-1. Discipline `kind` and category round `format` values (boulder was
-   `boulder_one_group_ifsc_2026`). Look at `discipline.kind` from the results page data.
-2. Whether judge positions / `judge_position_routes` exist for lead/TR, or if judging is by
-   route or heat (`heat_id`, `heat_run_participant_id` appear on ascents).
-3. What an ascent's result looks like: `lead_score`, `plus`, `top`, `time` (speed/TR timing?),
-   and whether there are multiple attempts at all. The judge app's `show_ascent_info` shows
-   lead as `Top` or `<lead_score>` plus `+`.
-4. "Prior score changed" for lead: a confirmed `lead_score`/`plus`/`top` should not change
-   later; there's probably no attempt count, so `priorDiffs` needs a lead-specific version.
-5. Remaining/Done/Not started, Everyone topped and JP finished all assume boulder attempts
-   and may need different definitions (e.g. one attempt per route in lead).
-6. Keep the boulder behaviour unchanged; branch on discipline kind.
+Checked on a live lead/TR qualification (round 1679, 9 categories). **Top rope and lead are
+both "lead" on the site**: the 11/13/15 categories there were top rope, 17/19 lead, all with
+discipline `{name: "lead", kind: 0}` and format `lead_usac_modified_redpoint`.
+- Lead mode is per category round: `c.lead = /^lead/i.test(format)` (format comes from
+  `RoundQuery`'s category rounds). Everything else uses the original boulder code paths.
+- Round settings: `usac_classic_redpoint {ranked_best_routes: 3, tries_penalty: 5}`;
+  `round.max_tries` 3, `category_round.max_tries` null. 3 routes per category.
+- Judge positions work as in boulder: one route per category per JP (`judge_position_routes`).
+- **One ascent record per attempt** (3 routes x 3 attempts = 9 records per climber). The attempt
+  number is the order of record `id` within the route (`att`). Attempts aren't always used in
+  id order (seen once: attempt 3 confirmed before attempt 1).
+- Result: `top` (true for a top, sometimes with `lead_score` = hold count too) or `lead_score`
+  as a string like `"4.0"` (`leadNum` parses it). `plus`, `dnf`, `dns`, `restarted`,
+  `top_tries`, `zone*` were never set. States: pending / active / confirmed / locked, as boulder.
+- Ranking still lists only started climbers; registrations fill in ghosts (one per route).
+- **NaN glitch**: some attempts are `confirmed`/`locked` with no top and `lead_score: null`; the
+  results page shows `NaN`. 20 in that event, some created before climbing began, one appeared
+  when a scored attempt (0) went blank. The monitor flags these as a yellow
+  "Confirmed with no score" (key `nan-<id>`), lead only.
+- Locking a climber rewrites `updated_at` on all their attempts within seconds; it counts as
+  activity in "Last activity" (same as boulder). Left as is on purpose.
+
+Monitor behaviour in lead:
+- Counts are per climber per route (`leadUnits`): Done = topped, DSQ, all `max_tries`
+  attempts used (non-pending), or every attempt locked; Not started = no attempt opened;
+  Remaining = the rest. Pending / Confirmed columns still count attempt records.
+- Prior score changed: `leadDiffs` compares Top / hold number / plus of each confirmed attempt
+  (`leadRes`). A confirmed blank (NaN) later filled in is not an error (the NaN warning covers it).
+- Not confirmed: unchanged, text says `route X, attempt N`; a later attempt on the same route
+  counts as "moved on".
+- A climb is finished ("All climbers done", blue) when every non-DNS climber has topped or
+  used all attempts; JP finished when all its climbs are finished (or finalized).
+- Unit tests: the `MILESTONES`..`fmtAgo` harness now also covers `leadDiffs` / `leadRes`.
